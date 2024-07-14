@@ -169,7 +169,7 @@ fn transform_video(config_path: String) -> Result<String, String> {
 
     println!("Setting up decoder...");
 
-    let decoder = ffmpeg::codec::context::Context::from_parameters(video_stream.parameters())
+    let mut decoder = ffmpeg::codec::context::Context::from_parameters(video_stream.parameters())
         .map_err(|e| format!("Failed to create decoder context: {}", e))?
         .decoder()
         .video()
@@ -237,7 +237,7 @@ fn transform_video(config_path: String) -> Result<String, String> {
     // encoder.set_options(&dict);
 
     // Open the encoder
-    let encoder = encoder
+    let mut encoder = encoder
         .open_as(codec)
         .map_err(|e| format!("Failed to open encoder: {}", e))?;
 
@@ -306,80 +306,78 @@ fn transform_video(config_path: String) -> Result<String, String> {
     let mut frame_index = 0;
     let mut successful_frame_index = 0;
 
+    // Get a packet iterator
+    let mut packet_iter = input_context.packets();
+
+    // Main loop
     'main_loop: loop {
-        let input_packet = match ffmpeg::Packet::new() {
-            Ok(packet) => packet,
-            Err(_) => break 'main_loop, // Break the loop if we can't allocate a new packet
-        };
+        match packet_iter.next() {
+            Some((stream, packet)) => {
+                if stream.index() == video_stream_index {
+                    // Process video packets
+                    decoder
+                        .send_packet(&packet)
+                        .map_err(|e| format!("Error sending packet for decoding: {}", e))?;
 
-        if let Err(_) = input_context.read(&mut input_packet) {
-            // Break the loop if we've read all packets
-            break 'main_loop;
-        }
+                    'decode_loop: loop {
+                        let mut decoded_frame = ffmpeg::frame::Video::empty();
+                        match decoder.receive_frame(&mut decoded_frame) {
+                            Ok(_) => {
+                                // Frame transformation logic
+                                // ...
 
-        if input_packet.stream() == video_stream.index() {
-            decoder
-                .send_packet(&input_packet)
-                .map_err(|e| format!("Error sending packet for decoding: {}", e))?;
+                                // Send the transformed frame to the encoder
+                                // encoder.send_frame(&bg_frame).map_err(|e| {
+                                //     format!("Error sending frame for encoding: {}", e)
+                                // })?;
 
-            'decode_loop: loop {
-                let mut decoded_frame = ffmpeg::frame::Video::empty();
-                match decoder.receive_frame(&mut decoded_frame) {
-                    Ok(_) => {
-                        // *** Frame Presentation Transformation *** //
-
-                        // Create a new frame for the background
-                        let mut bg_frame = ffmpeg::frame::Video::new(
-                            encoder.format(),
-                            encoder.width(),
-                            encoder.height(),
-                        );
-                        bg_frame.set_pts(Some(frame_index as i64));
-
-                        // ... (your frame transformation logic goes here)
-
-                        // Send the transformed frame to the encoder
-                        encoder
-                            .send_frame(&bg_frame)
-                            .map_err(|e| format!("Error sending frame for encoding: {}", e))?;
-
-                        'encode_loop: loop {
-                            let mut output_packet = ffmpeg::Packet::empty();
-                            match encoder.receive_packet(&mut output_packet) {
-                                Ok(_) => {
-                                    output_context
-                                        .write(&output_packet)
-                                        .map_err(|e| format!("Error writing packet: {}", e))?;
-                                    successful_frame_index += 1;
-                                }
-                                Err(ffmpeg::Error::Other {
-                                    errno: ffmpeg::error::EAGAIN,
-                                }) => {
-                                    break 'encode_loop;
-                                }
-                                Err(e) => {
-                                    return Err(format!("Error receiving encoded packet: {}", e))
+                                'encode_loop: loop {
+                                    let mut output_packet = ffmpeg::Packet::empty();
+                                    match encoder.receive_packet(&mut output_packet) {
+                                        Ok(_) => {
+                                            output_packet.set_stream(0); // Set the stream index
+                                            output_packet
+                                                .write_interleaved(&mut output_context)
+                                                .map_err(|e| {
+                                                    format!("Error writing packet: {}", e)
+                                                })?;
+                                            successful_frame_index += 1;
+                                        }
+                                        Err(ffmpeg::Error::Other {
+                                            errno: ffmpeg::error::EAGAIN,
+                                        }) => {
+                                            break 'encode_loop;
+                                        }
+                                        Err(e) => {
+                                            return Err(format!(
+                                                "Error receiving encoded packet: {}",
+                                                e
+                                            ))
+                                        }
+                                    }
                                 }
                             }
+                            Err(ffmpeg::Error::Other {
+                                errno: ffmpeg::error::EAGAIN,
+                            }) => {
+                                break 'decode_loop;
+                            }
+                            Err(e) => return Err(format!("Error receiving decoded frame: {}", e)),
                         }
                     }
-                    Err(ffmpeg::Error::Other {
-                        errno: ffmpeg::error::EAGAIN,
-                    }) => {
-                        break 'decode_loop;
-                    }
-                    Err(e) => return Err(format!("Error receiving decoded frame: {}", e)),
                 }
             }
+            // Some(Err(e)) => return Err(format!("Error reading packet: {}", e)),
+            None => break 'main_loop, // End of stream
         }
 
-        frame_index += 1;
-
-        let percentage = ((frame_index as f64 / total_frames as f64) * 100.0).round() as u8;
-        // Here you would send the progress update. In Tauri, you might use a channel or an event system.
-        // For now, we'll just print it:
-        println!("Progress: {}%", percentage);
+        // ... (progress update code)
     }
+
+    // After the main loop
+    output_context
+        .write_trailer()
+        .map_err(|e| format!("Error occurred when writing trailer: {}", e))?;
 
     Ok("Video transformation completed successfully".to_string())
 }
