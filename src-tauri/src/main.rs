@@ -298,8 +298,8 @@ fn transform_video(config_path: String) -> Result<String, String> {
     let mut mouse_y = 0.0;
     let mut current_mouse_x = decoder.width() as f64 / 2.0;
     let mut current_mouse_y = decoder.height() as f64 / 2.0;
-    let mut velocity_mouse_x = 0.0;
-    let mut velocity_mouse_y = 0.0;
+    let mut velocity_mouse_x: f64 = 0.0;
+    let mut velocity_mouse_y: f64 = 0.0;
     let mut zoom_top = 0;
     let mut zoom_left = 0;
     let mut zooming_in = false;
@@ -654,9 +654,9 @@ fn transform_video(config_path: String) -> Result<String, String> {
 
                                 // Make sure the dimensions are integers and within the frame size.
                                 let zoom_width =
-                                    (used_width.round() as i32).clamp(1, bg_frame.width() as i32);
+                                    (used_width.round() as u32).clamp(1, bg_frame.width() as u32);
                                 let zoom_height =
-                                    (used_height.round() as i32).clamp(1, bg_frame.height() as i32);
+                                    (used_height.round() as u32).clamp(1, bg_frame.height() as u32);
 
                                 for zoom in &config.zoom_info {
                                     let start = zoom.start;
@@ -725,6 +725,206 @@ fn transform_video(config_path: String) -> Result<String, String> {
                                     }
                                 }
 
+                                // clamp max
+                                let frame_width = bg_frame.width() as f64; // TODO: frame or bg_frame?
+                                let frame_height = bg_frame.height() as f64;
+
+                                // alternative clamp
+                                current_mouse_x = current_mouse_x.clamp(0.0, frame_width);
+                                current_mouse_y = current_mouse_y.clamp(0.0, frame_height);
+
+                                velocity_mouse_x = velocity_mouse_x.clamp(-mouse_x, frame_width);
+                                velocity_mouse_y = velocity_mouse_y.clamp(-mouse_y, frame_height);
+
+                                // println!("Mouse Positions: {}, {} and {}, {}", mouse_x, mouse_y, current_mouse_x, current_mouse_y);
+                                // println!("Spring Position: {}, {}", current_mouse_x, current_mouse_y);
+                                // println!("Smooth Info: {}, {}", smooth_height, smooth_width);
+
+                                // Center the zoom on the current mouse position
+                                let zoom_top = (current_mouse_y - zoom_height as f64 / 2.0)
+                                    .clamp(0.0, bg_frame.height() as f64 - zoom_height as f64)
+                                    .max(0.0) as u32;
+
+                                let zoom_left = (current_mouse_x - zoom_width as f64 / 2.0)
+                                    .clamp(0.0, bg_frame.width() as f64 - zoom_width as f64)
+                                    .max(0.0)
+                                    as u32;
+
+                                let target_zoom_top = (current_mouse_y - target_height as f64 / 2.0)
+                                    .clamp(0.0, bg_frame.height() as f64 - target_height as f64)
+                                    .max(0.0)
+                                    as f64;
+
+                                let target_zoom_left = (current_mouse_x - target_width as f64 / 2.0)
+                                    .clamp(0.0, bg_frame.width() as f64 - target_width as f64)
+                                    .max(0.0)
+                                    as f64;
+
+                                // max clamps
+                                let zoom_top = if zoom_top + zoom_height > bg_frame.height() {
+                                    bg_frame.height() - zoom_height
+                                } else {
+                                    zoom_top
+                                };
+
+                                let zoom_left = if zoom_left + zoom_width > bg_frame.width() {
+                                    bg_frame.width() - zoom_width
+                                } else {
+                                    zoom_left
+                                };
+
+                                // clamp zoom_top and zoom_left
+                                let zoom_top = zoom_top.min(bg_frame.height());
+                                let zoom_left = zoom_left.min(bg_frame.width());
+
+                                if enable_coord_smoothing {
+                                    let prev_zoom_top = smooth_zoom_top;
+                                    let prev_zoom_left = smooth_zoom_left;
+
+                                    if frame_index == 0 {
+                                        smooth_zoom_top = zoom_top as f64;
+                                        smooth_zoom_left = zoom_left as f64;
+                                    }
+
+                                    let frame_proportion =
+                                        bg_frame.height() as f64 / bg_frame.width() as f64;
+
+                                    let smoothing_factor = 0.95; // Adjust this value to change the amount of smoothing (0-1)
+                                    let top_change = (1.0 - smoothing_factor) * smooth_zoom_top;
+                                    smooth_zoom_top = zoom_top as f64 + top_change;
+                                    smooth_zoom_left =
+                                        zoom_left as f64 + (top_change * frame_proportion);
+
+                                    // println!("Smooth Info: {}, {}", smooth_zoom_top, smooth_zoom_left);
+
+                                    // Ensure non-negative values
+                                    smooth_zoom_top = smooth_zoom_top.max(0.0);
+                                    smooth_zoom_left = smooth_zoom_left.max(0.0);
+
+                                    // Round and ensure even numbers
+                                    smooth_zoom_top = (smooth_zoom_top.round() / 2.0).floor() * 2.0;
+                                    smooth_zoom_left =
+                                        (smooth_zoom_left.round() / 2.0).floor() * 2.0;
+
+                                    // Apply max clamps
+                                    smooth_zoom_top = smooth_zoom_top
+                                        .min(bg_frame.height() as f64 - zoom_height as f64);
+                                    smooth_zoom_left = smooth_zoom_left
+                                        .min(bg_frame.width() as f64 - zoom_width as f64);
+
+                                    // println!("Mid Info: {}, {}", zoom_top, zoom_left);
+
+                                    // Double-check even numbers (though this should be redundant now)
+                                    smooth_zoom_top = (smooth_zoom_top / 2.0).floor() * 2.0;
+                                    smooth_zoom_left = (smooth_zoom_left / 2.0).floor() * 2.0;
+
+                                    used_zoom_top = smooth_zoom_top;
+                                    used_zoom_left = smooth_zoom_left;
+                                } else {
+                                    // Ensure even numbers for non-smoothed zoom
+                                    used_zoom_top = (zoom_top as f64 / 2.0).floor() * 2.0;
+                                    used_zoom_left = (zoom_left as f64 / 2.0).floor() * 2.0;
+                                }
+
+                                println!(
+                                    "Used Info: {}, {} and {}, {}",
+                                    used_zoom_top,
+                                    used_zoom_left,
+                                    target_zoom_top,
+                                    target_zoom_left
+                                );
+
+                                use ffmpeg_next::format::Pixel;
+                                use ffmpeg_next::software::scaling::{
+                                    context::Context, flag::Flags,
+                                };
+                                use ffmpeg_next::util::frame::video::Video;
+                                use ffmpeg_next::{frame, Packet, Rational};
+
+                                // Create a new Video frame for the zoomed portion
+                                let mut zoom_frame = frame::Video::new(
+                                    Pixel::from(bg_frame.format()),
+                                    bg_frame.width(),
+                                    bg_frame.height(),
+                                );
+
+                                // TODO: Set the PTS for the zoom frame
+                                // zoom_frame.set_pts(Some(
+                                //     Rational(frame_index, 1)
+                                //         .rescale(encoder.time_base(), stream.time_base()),
+                                // ));
+
+                                // println!("Zoom Frame: {} x {}", zoom_width, zoom_height);
+                                // println!("Diagnostic Info: {} x {}", zoom_frame.width(), zoom_frame.height());
+
+                                // Create a scaling context for zooming
+                                let mut sws_ctx_zoom = Context::get(
+                                    bg_frame.format(),
+                                    zoom_width,
+                                    zoom_height,
+                                    zoom_frame.format(),
+                                    zoom_frame.width(),
+                                    zoom_frame.height(),
+                                    Flags::BILINEAR,
+                                )
+                                .expect("Failed to create scaling context");
+
+                                // Get pointers to the zoomed portion in the background frame
+                                let used_zoom_top_int = used_zoom_top.round() as usize;
+                                let used_zoom_left_int = used_zoom_left.round() as usize;
+
+                                let mut zoom_data = [
+                                    &bg_frame.data(0)[used_zoom_top_int * bg_frame.stride(0)
+                                        + used_zoom_left_int..],
+                                    &[],
+                                    &[],
+                                ];
+
+                                if used_zoom_top_int % 2 == 0 && used_zoom_left_int % 2 == 0 {
+                                    zoom_data[1] = &bg_frame.data(1)[(used_zoom_top_int / 2)
+                                        * bg_frame.stride(1)
+                                        + (used_zoom_left_int / 2)..];
+                                    zoom_data[2] = &bg_frame.data(2)[(used_zoom_top_int / 2)
+                                        * bg_frame.stride(2)
+                                        + (used_zoom_left_int / 2)..];
+                                }
+
+                                // Check zoom_data
+                                for (i, data) in zoom_data.iter().enumerate() {
+                                    if data.is_empty() {
+                                        println!("zoom_data[{}] is empty", i);
+                                    }
+                                }
+
+                                // TODO: Perform the scaling (zooming)
+                                // sws_ctx_zoom
+                                //     .run(
+                                //         &zoom_data,
+                                //         &bg_frame.strides(),
+                                //         0,
+                                //         zoom_height,
+                                //         &mut zoom_frame,
+                                //     )
+                                //     .expect("Failed to scale (zoom) the frame");
+
+                                let mut final_frame = Video::empty();
+
+                                sws_ctx_zoom
+                                    .run(&zoom_frame, &mut final_frame)
+                                    .expect("Failed to scale (zoom) the frame");
+
+                                // The scaling context will be automatically dropped when it goes out of scope
+
+                                // We don't need to manually free the frames in Rust, as they will be automatically
+                                // dropped when they go out of scope. The memory management is handled by Rust's
+                                // ownership system.
+
+                                // Send the zoom_frame to the encoder
+                                encoder.send_frame(&final_frame).map_err(|e| {
+                                    format!("Error sending frame for encoding: {}", e)
+                                })?;
+
+                                // Receive and write encoded packets
                                 'encode_loop: loop {
                                     let mut output_packet = ffmpeg::Packet::empty();
                                     match encoder.receive_packet(&mut output_packet) {
@@ -740,16 +940,19 @@ fn transform_video(config_path: String) -> Result<String, String> {
                                         Err(ffmpeg::Error::Other {
                                             errno: ffmpeg::error::EAGAIN,
                                         }) => {
+                                            // No more packets to receive, break the loop
                                             break 'encode_loop;
                                         }
                                         Err(e) => {
                                             return Err(format!(
                                                 "Error receiving encoded packet: {}",
                                                 e
-                                            ))
+                                            ));
                                         }
                                     }
                                 }
+
+                                // The zoom_frame will be automatically dropped here when it goes out of scope
                             }
                             Err(ffmpeg::Error::Other {
                                 errno: ffmpeg::error::EAGAIN,
