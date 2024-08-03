@@ -1,6 +1,7 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use ffmpeg_next::Dictionary;
 use ffmpeg_next::{
     software::scaling::{context::Context, flag::Flags},
     util::frame::video::Video,
@@ -8,6 +9,8 @@ use ffmpeg_next::{
 use serde::{Deserialize, Serialize};
 use serde_json;
 use serde_json::Value;
+use std::collections::HashMap;
+use std::env;
 use std::error::Error;
 use std::fs;
 use std::fs::File;
@@ -113,20 +116,28 @@ struct MouseEvents {
 
 #[derive(Deserialize, Serialize, Debug)]
 struct SourceFile {
-    x: u32,
-    y: u32,
+    x: i32,
+    y: i32,
     width: i32,
     height: i32,
     scale_factor: f64,
 }
 
 #[tauri::command]
-fn transform_video(config_path: String) -> Result<String, String> {
-    println!("Loading configuration...");
+fn transform_video(configPath: String) -> Result<String, String> {
+    // for debugging purposes
+    match env::current_dir() {
+        Ok(path) => println!("Current directory is: {:?}", path),
+        Err(e) => println!("Failed to get current directory: {}", e),
+    }
+
+    println!("Loading configuration... {}", configPath);
 
     // Load and parse the JSON configuration
-    let config: Config = match fs::read_to_string(&config_path) {
-        Ok(json_str) => serde_json::from_str(&json_str).map_err(|e| e.to_string())?,
+    let config: Config = match fs::read_to_string(&configPath) {
+        Ok(json_str) => serde_json::from_str(&json_str)
+            .map_err(|e| e.to_string())
+            .expect("Couldn't transform json string"),
         Err(e) => return Err(format!("Failed to read config file: {}", e)),
     };
 
@@ -156,7 +167,8 @@ fn transform_video(config_path: String) -> Result<String, String> {
         Ok(file) => {
             let reader = BufReader::new(file);
             serde_json::from_reader(reader)
-                .map_err(|e| format!("Failed to parse window data JSON: {}", e))?
+                .map_err(|e| format!("Failed to parse window data JSON: {}", e))
+                .expect("Couldn't transform json data")
         }
         Err(e) => return Err(format!("Could not open window data file: {}", e)),
     };
@@ -243,6 +255,8 @@ fn transform_video(config_path: String) -> Result<String, String> {
 
     // output_stream.set_parameters(encoder.parameters());
 
+    // encoder.set_codec(&codec);
+
     println!("Setting up codec context...");
     println!("Bit Rate: {}", decoder.bit_rate());
 
@@ -257,19 +271,17 @@ fn transform_video(config_path: String) -> Result<String, String> {
     encoder.set_max_b_frames(1);
     encoder.set_format(ffmpeg::util::format::Pixel::YUV420P);
 
-    output_stream.set_time_base((1, fps_int));
+    // Create a Dictionary to hold the encoder parameters
+    let mut parameters = Dictionary::new();
+    parameters.set("vpre", "medium");
+    // parameters.set("tune", "zerolatency"); // "good for streaming scenarios"??
+    parameters.set("crf", "23");
 
-    // Set encoder options
-    // let mut dict = ffmpeg::Dictionary::new();
-    // dict.set("preset", "medium");
-    // dict.set("crf", "23");
-
-    // encoder.set_options(&dict);
-
-    // Open the encoder
     let mut encoder = encoder
-        .open_as(codec)
-        .map_err(|e| format!("Failed to open encoder: {}", e))?;
+        .open_as_with(codec, parameters)
+        .expect("Couldn't open encoder");
+
+    output_stream.set_time_base((1, fps_int));
 
     // Copy encoder parameters to output stream
     // output_stream.set_parameters(encoder.parameters());
