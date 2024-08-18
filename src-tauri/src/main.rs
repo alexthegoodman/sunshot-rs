@@ -303,6 +303,7 @@ fn transform_video(configPath: String) -> Result<String, String> {
 
     // Copy encoder parameters to output stream
     // output_stream.set_parameters(encoder.parameters());
+    output_stream.set_parameters(video_stream.parameters());
 
     // Open output file
     println!("Opening output file...");
