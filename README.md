@@ -12,7 +12,7 @@ Needs pkg-config, clang, ffmpeg on system:
 - choco install llvm
 - Install vcpkg
 - vcpkg integrate install
-- vcpkg install ffmpeg
+- vcpkg install ffmpeg[x264,gpl]
 
 Run:
 

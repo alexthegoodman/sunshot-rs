@@ -242,13 +242,20 @@ fn transform_video(configPath: String) -> Result<String, String> {
         .flags()
         .contains(ffmpeg::format::Flags::GLOBAL_HEADER);
 
-    let codec = ffmpeg::encoder::find_by_name("libx264").ok_or("Could not find libx264 encoder")?;
+    // let codec = ffmpeg::encoder::find_by_name("libx264").ok_or("Could not find libx264 encoder")?;
+    let codec =
+        ffmpeg::encoder::find(ffmpeg::codec::Id::H264).ok_or("Could not find libx264 encoder")?;
 
     let mut output_stream = output_context
         .add_stream(codec)
         .map_err(|e| format!("Failed to add output stream: {}", e))?;
 
-    let mut encoder = ffmpeg::codec::context::Context::new()
+    // let mut encoder = ffmpeg::codec::context::Context::new()
+    //     .encoder()
+    //     .video()
+    //     .map_err(|e| format!("Failed to create video encoder: {}", e))?;
+
+    let mut encoder = ffmpeg::codec::context::Context::new_with_codec(codec)
         .encoder()
         .video()
         .map_err(|e| format!("Failed to create video encoder: {}", e))?;
@@ -259,27 +266,38 @@ fn transform_video(configPath: String) -> Result<String, String> {
 
     println!("Setting up codec context...");
     println!("Bit Rate: {}", decoder.bit_rate());
+    println!("Codec name: {}", codec.name());
 
     let fps_int = 60; // Assuming 60 FPS, adjust as needed
 
     encoder.set_bit_rate(decoder.bit_rate());
     encoder.set_width(decoder.width());
     encoder.set_height(decoder.height());
-    encoder.set_time_base((1, fps_int));
+    // encoder.set_time_base((1, fps_int));
+    encoder.set_time_base(ffmpeg::Rational(1, fps_int));
     encoder.set_frame_rate(Some(ffmpeg::Rational(fps_int, 1)));
     encoder.set_gop(10);
     encoder.set_max_b_frames(1);
     encoder.set_format(ffmpeg::util::format::Pixel::YUV420P);
+    // encoder.set_quality(50); // "-qscale is ignored, -crf is recommended."
+    // encoder.set_compression(Some(23));
+
+    println!("Continuing 1");
 
     // Create a Dictionary to hold the encoder parameters
     let mut parameters = Dictionary::new();
-    parameters.set("vpre", "medium");
+    parameters.set("preset", "medium");
+    // parameters.set("x264-params", "level=4.0");
     // parameters.set("tune", "zerolatency"); // "good for streaming scenarios"??
     parameters.set("crf", "23");
 
+    println!("Continuing 2");
+
     let mut encoder = encoder
-        .open_as_with(codec, parameters)
+        .open_with(parameters)
         .expect("Couldn't open encoder");
+
+    println!("Continuing 3");
 
     output_stream.set_time_base((1, fps_int));
 
