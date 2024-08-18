@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use ffmpeg_next::Dictionary;
+use ffmpeg_next::Rescale;
 use ffmpeg_next::{
     software::scaling::{context::Context, flag::Flags},
     util::frame::video::Video,
@@ -880,10 +881,15 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                 );
 
                                 // TODO: Set the PTS for the zoom frame
-                                // zoom_frame.set_pts(Some(
-                                //     Rational(frame_index, 1)
-                                //         .rescale(encoder.time_base(), stream.time_base()),
-                                // ));
+                                // let scaled_pts =
+                                //     ffmpeg::util::mathematics::rescale::Rescale::rescale(
+                                //         frame_index,
+                                //         encoder.time_base(),
+                                //         stream.time_base(),
+                                //     );
+                                let scaled_pts =
+                                    frame_index.rescale(encoder.time_base(), stream.time_base());
+                                zoom_frame.set_pts(Some(scaled_pts));
 
                                 // println!("Zoom Frame: {} x {}", zoom_width, zoom_height);
                                 // println!("Diagnostic Info: {} x {}", zoom_frame.width(), zoom_frame.height());
@@ -939,6 +945,8 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                 //     .expect("Failed to scale (zoom) the frame");
 
                                 let mut final_frame = Video::empty();
+
+                                final_frame.set_pts(Some(scaled_pts));
 
                                 sws_ctx_zoom
                                     .run(&zoom_frame, &mut final_frame)
@@ -1000,6 +1008,7 @@ fn transform_video(configPath: String) -> Result<String, String> {
         }
 
         // ... (progress update code)
+        frame_index += 1;
     }
 
     // After the main loop
