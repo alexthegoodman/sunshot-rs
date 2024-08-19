@@ -1,12 +1,12 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use ffmpeg_next::format::Pixel;
+use ffmpeg_next::software::scaling::{context::Context, flag::Flags};
+use ffmpeg_next::util::frame::video::Video;
 use ffmpeg_next::Dictionary;
 use ffmpeg_next::Rescale;
-use ffmpeg_next::{
-    software::scaling::{context::Context, flag::Flags},
-    util::frame::video::Video,
-};
+use ffmpeg_next::{frame, Packet, Rational};
 use serde::{Deserialize, Serialize};
 use serde_json;
 use serde_json::Value;
@@ -287,10 +287,10 @@ fn transform_video(configPath: String) -> Result<String, String> {
 
     // Create a Dictionary to hold the encoder parameters
     let mut parameters = Dictionary::new();
-    parameters.set("preset", "medium");
+    parameters.set("preset", "faster");
     // parameters.set("x264-params", "level=4.0");
     // parameters.set("tune", "zerolatency"); // "good for streaming scenarios"??
-    parameters.set("crf", "23");
+    parameters.set("crf", "27");
 
     println!("Continuing 2");
 
@@ -362,11 +362,15 @@ fn transform_video(configPath: String) -> Result<String, String> {
 
     let animation_duration = 2000;
 
-    let enable_dimension_smoothing = true;
-    let enable_coord_smoothing = true;
+    let enable_dimension_smoothing = false;
+    let enable_coord_smoothing = false;
 
     let mut frame_index = 0;
     let mut successful_frame_index = 0;
+
+    let mut target_multiplier = 1.0; // Default value when no zoom effect is active
+    let mut zooming_in = false;
+    let mut zooming_out = false;
 
     // Get a packet iterator
     let mut packet_iter = input_context.packets();
@@ -458,6 +462,10 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                     }
                                 }
 
+                                // println!("bg_frame Y plane length: {}", bg_frame.data(0).len());
+                                // println!("bg_frame U plane length: {}", bg_frame.data(1).len());
+                                // println!("bg_frame V plane length: {}", bg_frame.data(2).len());
+
                                 // *** Inset Video *** //
 
                                 // Scale down the frame using libswscale
@@ -481,10 +489,17 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                 .map_err(|e| format!("Failed to create scaling context: {}", e))?;
 
                                 // Create a new frame for the scaled video
-                                let mut scaled_frame = Video::empty();
-                                scaled_frame.set_format(decoded_frame.format());
-                                scaled_frame.set_width(scaled_width);
-                                scaled_frame.set_height(scaled_height);
+                                // let mut scaled_frame = Video::empty();
+                                // scaled_frame.set_format(decoded_frame.format());
+                                // scaled_frame.set_width(scaled_width);
+                                // scaled_frame.set_height(scaled_height);
+
+                                let mut scaled_frame = frame::Video::new(
+                                    Pixel::from(decoded_frame.format()),
+                                    scaled_width,
+                                    scaled_height,
+                                );
+
                                 // TODO: needed?
                                 // scaled_frame.alloc_buffer().map_err(|e| {
                                 //     format!("Failed to allocate buffer for scaled frame: {}", e)
@@ -562,8 +577,6 @@ fn transform_video(configPath: String) -> Result<String, String> {
 
                                 // Search for the current zoom level
                                 let mut t = 1.0;
-                                let mut target_multiplier = 1.0; // Default value when no zoom effect is active
-                                let mut zooming_in = false;
 
                                 for zoom in &config.zoom_info {
                                     let start = zoom.start as i32;
@@ -579,12 +592,14 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                             velocity_width = 0.0;
                                             velocity_height = 0.0;
                                             zooming_in = true;
+                                            zooming_out = false;
                                             println!("Zooming In");
+                                            target_multiplier = zoom_factor;
                                         }
-                                        target_multiplier = zoom_factor;
+
                                         // Calculate the interpolation factor t based on the animation progress
-                                        t = time_elapsed as f64
-                                            / (start + animation_duration) as f64;
+                                        // t = time_elapsed as f64
+                                        //     / (start + animation_duration) as f64;
                                     } else if time_elapsed >= end
                                         && time_elapsed < end + animation_duration
                                     {
@@ -595,9 +610,14 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                             velocity_width = 0.0;
                                             velocity_height = 0.0;
                                             zooming_in = false;
+                                            zooming_out = true;
                                             println!("Zooming Out");
+                                            target_multiplier = 1.0;
                                         }
-                                        target_multiplier = 1.0;
+                                    } else if (time_elapsed >= end + animation_duration) {
+                                        if zooming_out {
+                                            zooming_out = true;
+                                        }
                                     }
                                 }
 
@@ -609,27 +629,31 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                 target_width = bg_frame.width() as f64 * current_multiplier;
                                 target_height = bg_frame.height() as f64 * current_multiplier;
 
+                                // println!("target_width {}", target_width);
+
                                 // These should be declared outside the loop and updated each iteration
                                 let mut current_width = bg_frame.width() as f64;
                                 let mut current_height = bg_frame.height() as f64;
 
-                                let displacement_width = frictional_animation(
-                                    target_width,
-                                    current_width,
-                                    velocity_width,
-                                    friction2,
-                                );
-                                let displacement_height = frictional_animation(
-                                    target_height,
-                                    current_height,
-                                    velocity_height,
-                                    friction2,
-                                );
+                                if zooming_in || zooming_out {
+                                    let displacement_width = frictional_animation(
+                                        target_width,
+                                        current_width,
+                                        velocity_width,
+                                        friction2,
+                                    );
+                                    let displacement_height = frictional_animation(
+                                        target_height,
+                                        current_height,
+                                        velocity_height,
+                                        friction2,
+                                    );
 
-                                current_width += displacement_width;
-                                current_height += displacement_height;
-                                velocity_width += displacement_width;
-                                velocity_height += displacement_height;
+                                    current_width += displacement_width;
+                                    current_height += displacement_height;
+                                    velocity_width += displacement_width;
+                                    velocity_height += displacement_height;
+                                }
 
                                 // println!("zooming_in {}", zooming_in);
                                 if zooming_in {
@@ -642,15 +666,18 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                     current_height = current_height.min(target_height);
                                 }
 
-                                // println!("Dimensions: {} {} {} {} {} {}",
-                                //     target_width, target_height, current_width,
-                                //     current_height, displacement_width, displacement_height);
+                                // println!(
+                                //     "Dimensions: {} {} {} {}",
+                                //     target_width, target_height, current_width, current_height
+                                // );
 
                                 velocity_width = velocity_width.clamp(-10000.0, 10000.0);
                                 velocity_height = velocity_height.clamp(-10000.0, 10000.0);
 
-                                let (used_width, used_height) = if enable_dimension_smoothing {
-                                    let smoothing_factor1 = 0.02;
+                                let (used_width, used_height) = if (enable_dimension_smoothing
+                                    && (zooming_in || zooming_out))
+                                {
+                                    let smoothing_factor1 = 0.2;
                                     let (smooth_width, smooth_height) = if successful_frame_index
                                         == 0
                                     {
@@ -684,6 +711,8 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                     (current_width, current_height)
                                 };
 
+                                // println!("used: {}", used_width);
+
                                 // Make sure the dimensions are integers and within the frame size.
                                 let zoom_width =
                                     (used_width.round() as u32).clamp(1, bg_frame.width() as u32);
@@ -712,13 +741,13 @@ fn transform_video(configPath: String) -> Result<String, String> {
 
                                             zooming_in2 = true;
 
-                                            println!(
-                                                "setting mouse {} {} {} {}",
-                                                mouse_x,
-                                                scale_multiple,
-                                                current_width,
-                                                window_data.x
-                                            );
+                                            // println!(
+                                            //     "setting mouse {} {} {} {}",
+                                            //     mouse_x,
+                                            //     scale_multiple,
+                                            //     current_width,
+                                            //     window_data.x
+                                            // );
 
                                             // DPI scaling
                                             let scale_factor = window_data.scale_factor;
@@ -768,7 +797,10 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                 velocity_mouse_x = velocity_mouse_x.clamp(-mouse_x, frame_width);
                                 velocity_mouse_y = velocity_mouse_y.clamp(-mouse_y, frame_height);
 
-                                // println!("Mouse Positions: {}, {} and {}, {}", mouse_x, mouse_y, current_mouse_x, current_mouse_y);
+                                // println!(
+                                //     "Mouse Positions: {}, {} and {}, {}",
+                                //     mouse_x, mouse_y, current_mouse_x, current_mouse_y
+                                // );
                                 // println!("Spring Position: {}, {}", current_mouse_x, current_mouse_y);
                                 // println!("Smooth Info: {}, {}", smooth_height, smooth_width);
 
@@ -781,6 +813,8 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                     .clamp(0.0, bg_frame.width() as f64 - zoom_width as f64)
                                     .max(0.0)
                                     as u32;
+
+                                // println!("Mid Info: {}, {}", zoom_top, zoom_left);
 
                                 let target_zoom_top = (current_mouse_y - target_height as f64 / 2.0)
                                     .clamp(0.0, bg_frame.height() as f64 - target_height as f64)
@@ -844,8 +878,6 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                     smooth_zoom_left = smooth_zoom_left
                                         .min(bg_frame.width() as f64 - zoom_width as f64);
 
-                                    // println!("Mid Info: {}, {}", zoom_top, zoom_left);
-
                                     // Double-check even numbers (though this should be redundant now)
                                     smooth_zoom_top = (smooth_zoom_top / 2.0).floor() * 2.0;
                                     smooth_zoom_left = (smooth_zoom_left / 2.0).floor() * 2.0;
@@ -858,35 +890,23 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                     used_zoom_left = (zoom_left as f64 / 2.0).floor() * 2.0;
                                 }
 
-                                println!(
-                                    "Used Info: {}, {} and {}, {}",
-                                    used_zoom_top,
-                                    used_zoom_left,
-                                    target_zoom_top,
-                                    target_zoom_left
-                                );
-
-                                use ffmpeg_next::format::Pixel;
-                                use ffmpeg_next::software::scaling::{
-                                    context::Context, flag::Flags,
-                                };
-                                use ffmpeg_next::util::frame::video::Video;
-                                use ffmpeg_next::{frame, Packet, Rational};
+                                // println!(
+                                //     "Used Info: {}, {} and {}, {}",
+                                //     used_zoom_top,
+                                //     used_zoom_left,
+                                //     target_zoom_top,
+                                //     target_zoom_left
+                                // );
 
                                 // Create a new Video frame for the zoomed portion
                                 let mut zoom_frame = frame::Video::new(
                                     Pixel::from(bg_frame.format()),
                                     bg_frame.width(),
                                     bg_frame.height(),
+                                    // zoom_width,
+                                    // zoom_height,
                                 );
 
-                                // TODO: Set the PTS for the zoom frame
-                                // let scaled_pts =
-                                //     ffmpeg::util::mathematics::rescale::Rescale::rescale(
-                                //         frame_index,
-                                //         encoder.time_base(),
-                                //         stream.time_base(),
-                                //     );
                                 let scaled_pts =
                                     frame_index.rescale(encoder.time_base(), stream.time_base());
                                 zoom_frame.set_pts(Some(scaled_pts));
@@ -905,51 +925,137 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                     Flags::BILINEAR,
                                 )
                                 .expect("Failed to create scaling context");
+                                // let mut sws_ctx_zoom = Context::get(
+                                //     bg_frame.format(),
+                                //     zoom_width,
+                                //     zoom_height,
+                                //     bg_frame.format(),
+                                //     bg_frame.width(),
+                                //     bg_frame.height(),
+                                //     Flags::BILINEAR,
+                                // )
+                                // .expect("Failed to create scaling context");
+
+                                // println!(
+                                //     "widths: {}, {}, {}, {}, {}",
+                                //     encoder.width(),
+                                //     decoded_frame.width(),
+                                //     zoom_frame.width(),
+                                //     scaled_frame.width(),
+                                //     zoom_width
+                                // );
 
                                 // Get pointers to the zoomed portion in the background frame
                                 let used_zoom_top_int = used_zoom_top.round() as usize;
                                 let used_zoom_left_int = used_zoom_left.round() as usize;
+                                // let zoom_frame_height = zoom_frame.height() as usize;
+                                // let zoom_frame_width = zoom_frame.width() as usize;
+                                let zoom_frame_height = zoom_height as usize;
+                                let zoom_frame_width = zoom_width as usize;
 
-                                let mut zoom_data = [
-                                    &bg_frame.data(0)[used_zoom_top_int * bg_frame.stride(0)
-                                        + used_zoom_left_int..],
-                                    &[],
-                                    &[],
-                                ];
+                                let zoom_frame_stride_0 = zoom_frame.stride(0) as usize;
+                                let zoom_frame_stride_1 = zoom_frame.stride(1) as usize;
+
+                                let used_zoom_bottom_int = used_zoom_top_int + zoom_frame_height;
+                                let used_zoom_right_int = used_zoom_left_int + zoom_frame_width;
+                                // let used_zoom_bottom_int = bg_frame.height() as usize
+                                //     - zoom_frame_height
+                                //     - used_zoom_top_int;
+                                // let used_zoom_right_int = bg_frame.width() as usize
+                                //     - zoom_frame_width
+                                //     - used_zoom_left_int;
+
+                                // println!(
+                                //     "vars: {} {} {} {} {} {} {} {}",
+                                //     used_zoom_top_int,
+                                //     bg_frame.stride(0),
+                                //     bg_frame.stride(1),
+                                //     used_zoom_left_int,
+                                //     zoom_frame_stride_0,
+                                //     zoom_frame_height,
+                                //     used_zoom_bottom_int,
+                                //     used_zoom_right_int
+                                // );
+
+                                let mut zoom_data: [*const u8; 3] = [std::ptr::null(); 3];
+
+                                let start_y =
+                                    used_zoom_top_int * bg_frame.stride(0) + used_zoom_left_int;
+
+                                zoom_data[0] = bg_frame.data(0)[start_y..].as_ptr();
 
                                 if used_zoom_top_int % 2 == 0 && used_zoom_left_int % 2 == 0 {
-                                    zoom_data[1] = &bg_frame.data(1)[(used_zoom_top_int / 2)
-                                        * bg_frame.stride(1)
-                                        + (used_zoom_left_int / 2)..];
-                                    zoom_data[2] = &bg_frame.data(2)[(used_zoom_top_int / 2)
-                                        * bg_frame.stride(2)
-                                        + (used_zoom_left_int / 2)..];
+                                    let start_u = (used_zoom_top_int / 2) * bg_frame.stride(1)
+                                        + (used_zoom_left_int / 2);
+                                    zoom_data[1] = bg_frame.data(1)[start_u..].as_ptr();
+
+                                    let start_v = (used_zoom_top_int / 2) * bg_frame.stride(2)
+                                        + (used_zoom_left_int / 2);
+                                    zoom_data[2] = bg_frame.data(2)[start_v..].as_ptr();
+                                } else {
+                                    zoom_data[1] = std::ptr::null();
+                                    zoom_data[2] = std::ptr::null();
                                 }
 
+                                // approach u
                                 // Check zoom_data
-                                for (i, data) in zoom_data.iter().enumerate() {
-                                    if data.is_empty() {
-                                        println!("zoom_data[{}] is empty", i);
+                                for (i, &ptr) in zoom_data.iter().enumerate() {
+                                    if ptr.is_null() {
+                                        println!("zoom_data[{}] is null", i);
                                     }
                                 }
 
-                                // TODO: Perform the scaling (zooming)
-                                // sws_ctx_zoom
-                                //     .run(
-                                //         &zoom_data,
-                                //         &bg_frame.strides(),
-                                //         0,
-                                //         zoom_height,
-                                //         &mut zoom_frame,
-                                //     )
-                                //     .expect("Failed to scale (zoom) the frame");
+                                // We can't directly get the length of a raw pointer, so we'll need to calculate it
+                                let y_plane_size = (zoom_width * zoom_height) as usize;
+                                // println!("Y plane size: {}", y_plane_size);
 
-                                let mut final_frame = Video::empty();
+                                let mut data_frame = frame::Video::new(
+                                    Pixel::from(bg_frame.format()),
+                                    zoom_width,
+                                    zoom_height,
+                                );
 
-                                final_frame.set_pts(Some(scaled_pts));
+                                data_frame.set_pts(Some(scaled_pts));
 
+                                // Set the data from the zoom_data
+                                unsafe {
+                                    // Copy Y plane
+                                    std::ptr::copy_nonoverlapping(
+                                        zoom_data[0],
+                                        data_frame.data_mut(0).as_mut_ptr(),
+                                        y_plane_size,
+                                    );
+
+                                    // Check if U and V planes are available
+                                    if !zoom_data[1].is_null() && !zoom_data[2].is_null() {
+                                        let uv_plane_size = y_plane_size / 4; // Assuming 4:2:0 chroma subsampling
+                                        std::ptr::copy_nonoverlapping(
+                                            zoom_data[1],
+                                            data_frame.data_mut(1).as_mut_ptr(),
+                                            uv_plane_size,
+                                        );
+                                        std::ptr::copy_nonoverlapping(
+                                            zoom_data[2],
+                                            data_frame.data_mut(2).as_mut_ptr(),
+                                            uv_plane_size,
+                                        );
+                                    }
+                                }
+
+                                // Continue with scaling logic...
+
+                                // let mut final_frame = Video::empty();
+                                // let mut final_frame = frame::Video::new(
+                                //     Pixel::from(bg_frame.format()),
+                                //     bg_frame.width(),
+                                //     bg_frame.height(),
+                                // );
+
+                                // final_frame.set_pts(Some(scaled_pts));
+
+                                // TODO: but zoom_frame needs to have a height of zoom_height to be passed to sws_scale
                                 sws_ctx_zoom
-                                    .run(&zoom_frame, &mut final_frame)
+                                    .run(&data_frame, &mut zoom_frame)
                                     .expect("Failed to scale (zoom) the frame");
 
                                 // The scaling context will be automatically dropped when it goes out of scope
@@ -959,7 +1065,7 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                 // ownership system.
 
                                 // Send the zoom_frame to the encoder
-                                encoder.send_frame(&final_frame).map_err(|e| {
+                                encoder.send_frame(&zoom_frame).map_err(|e| {
                                     format!("Error sending frame for encoding: {}", e)
                                 })?;
 
