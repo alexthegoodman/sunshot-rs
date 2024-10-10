@@ -16,9 +16,12 @@ use std::error::Error;
 use std::fs;
 use std::fs::File;
 use std::io::BufReader;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time;
 use std::time::Instant;
+
+use rayon::prelude::*;
 
 // FFmpeg bindings
 use ffmpeg_next as ffmpeg;
@@ -77,6 +80,32 @@ fn calculate_v(r: f64, g: f64, b: f64) -> f64 {
     0.5 * r - 0.41869 * g - 0.08131 * b
 }
 
+fn precalculate_gradient(
+    width: usize,
+    start_color: (f64, f64, f64),
+    end_color: (f64, f64, f64),
+) -> Vec<(f64, f64, f64)> {
+    (0..width)
+        .map(|x| {
+            let gradient_position = x as f64 / (width - 1) as f64;
+            let color_r = start_color.0 as f64
+                + gradient_position * (end_color.0 as f64 - start_color.0 as f64);
+            let color_g = start_color.1 as f64
+                + gradient_position * (end_color.1 as f64 - start_color.1 as f64);
+            let color_b = start_color.2 as f64
+                + gradient_position * (end_color.2 as f64 - start_color.2 as f64);
+            (color_r, color_g, color_b)
+        })
+        .collect()
+}
+
+// fn rgb_to_yuv(r: u8, g: u8, b: u8) -> (u8, u8, u8) {
+//     let y = (0.299 * r as f64 + 0.587 * g as f64 + 0.114 * b as f64) as u8;
+//     let u = (128.0 - 0.168736 * r as f64 - 0.331264 * g as f64 + 0.5 * b as f64) as u8;
+//     let v = (128.0 + 0.5 * r as f64 - 0.418688 * g as f64 - 0.081312 * b as f64) as u8;
+//     (y, u, v)
+// }
+
 #[derive(Deserialize, Serialize, Debug)]
 struct ZoomInfo {
     start: i32,
@@ -124,8 +153,19 @@ struct SourceFile {
     scale_factor: f64,
 }
 
+#[derive(Deserialize, Serialize, Clone)]
+struct FramePixel {
+    color_y: u8,
+    color_u: u8,
+    color_v: u8,
+    x: usize,
+    y: usize,
+}
+
 #[tauri::command]
 fn transform_video(configPath: String) -> Result<String, String> {
+    let start1 = Instant::now();
+
     // for debugging purposes
     match env::current_dir() {
         Ok(path) => println!("Current directory is: {:?}", path),
@@ -375,12 +415,75 @@ fn transform_video(configPath: String) -> Result<String, String> {
     // Get a packet iterator
     let mut packet_iter = input_context.packets();
 
+    // Parameters for gradient colors
+    let start_color = (
+        config.background_info[0].start.r,
+        config.background_info[0].start.g,
+        config.background_info[0].start.b,
+    );
+    let end_color = (
+        config.background_info[0].end.r,
+        config.background_info[0].end.g,
+        config.background_info[0].end.b,
+    );
+
+    let precalculated_gradient =
+        precalculate_gradient(decoder.width() as usize, start_color, end_color);
+
+    // Color shift
+    let color_shift = 128.0 as f64;
+
+    let precalculated_yuv: Vec<(u8, u8, u8)> = precalculated_gradient
+        .iter()
+        .map(|&(r, g, b)| {
+            let y = calculate_y(r, g, b) as u8;
+            let u = (calculate_u(r, g, b) + color_shift) as u8;
+            let v = (calculate_v(r, g, b) + color_shift) as u8;
+            (y, u, v)
+        })
+        .collect();
+
+    let decoderHeight = decoder.height();
+    let decoderWidth = decoder.width();
+
+    let precalculated_data: Vec<FramePixel> = (0..decoderHeight)
+        .into_par_iter() // Parallel iterator
+        .flat_map(|y| {
+            let precalculated_gradient = precalculated_gradient.clone();
+
+            (0..decoderWidth).into_par_iter().map(move |x| {
+                let (color_r, color_g, color_b) = precalculated_gradient[x as usize];
+                let color_y = calculate_y(color_r, color_g, color_b);
+                let color_u = calculate_u(color_r, color_g, color_b) + 128.0;
+                let color_v = calculate_v(color_r, color_g, color_b) + 128.0;
+
+                // Return the calculated data
+                FramePixel {
+                    color_y: color_y as u8,
+                    color_u: color_u as u8,
+                    color_v: color_v as u8,
+                    x: x.try_into().unwrap(),
+                    y: y.try_into().unwrap(),
+                }
+            })
+        })
+        .collect(); // Collect all the results
+
+    let duration1 = start1.elapsed();
+    println!(
+        "start1 Time elapsed: {:?}, {:?}",
+        duration1,
+        precalculated_data.len()
+    );
+
     // Main loop
     'main_loop: loop {
         match packet_iter.next() {
             Some((stream, packet)) => {
                 if stream.index() == video_stream_index {
                     // Process video packets
+                    let start2 = Instant::now();
+
                     decoder
                         .send_packet(&packet)
                         .map_err(|e| format!("Error sending packet for decoding: {}", e))?;
@@ -391,11 +494,6 @@ fn transform_video(configPath: String) -> Result<String, String> {
                             Ok(_) => {
                                 // *** Frame transformation logic ***
 
-                                // Send the transformed frame to the encoder
-                                // encoder.send_frame(&bg_frame).map_err(|e| {
-                                //     format!("Error sending frame for encoding: {}", e)
-                                // })?;
-
                                 // Create a new frame for the background
                                 let mut bg_frame = ffmpeg::frame::Video::new(
                                     encoder.format(),
@@ -404,67 +502,49 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                 );
                                 bg_frame.set_pts(Some(frame_index as i64));
 
-                                // Parameters for gradient colors
-                                let start_color = (
-                                    config.background_info[0].start.r,
-                                    config.background_info[0].start.g,
-                                    config.background_info[0].start.b,
-                                );
-                                let end_color = (
-                                    config.background_info[0].end.r,
-                                    config.background_info[0].end.g,
-                                    config.background_info[0].end.b,
-                                );
+                                let precalculated_data = precalculated_data.clone();
 
-                                // Color shift
-                                let color_shift = 128.0 as f64;
+                                let start3 = Instant::now();
 
-                                // Fill the background frame with gradient
-                                // TODO: double check f64 is correct
-                                for y in 0..bg_frame.height() {
-                                    for x in 0..bg_frame.width() {
-                                        // Calculate normalized gradient position
-                                        let gradient_position = x as f64 / bg_frame.width() as f64;
+                                // Get the strides first
+                                let y_stride = bg_frame.stride(0) as usize;
+                                let uv_stride = bg_frame.stride(1) as usize;
 
-                                        // Calculate RGB color values
-                                        let color_r = (start_color.0 as f64
-                                            + gradient_position
-                                                * (end_color.0 as f64 - start_color.0 as f64));
-                                        let color_g = (start_color.1 as f64
-                                            + gradient_position
-                                                * (end_color.1 as f64 - start_color.1 as f64));
-                                        let color_b = (start_color.2 as f64
-                                            + gradient_position
-                                                * (end_color.2 as f64 - start_color.2 as f64));
-
-                                        // Convert RGB to YUV
-                                        let color_y = calculate_y(color_r, color_g, color_b);
-                                        let color_u =
-                                            calculate_u(color_r, color_g, color_b) + color_shift;
-                                        let color_v =
-                                            calculate_v(color_r, color_g, color_b) + color_shift;
-
-                                        // Fill Y plane
-                                        let y_index = (y as usize * bg_frame.stride(0) as usize
-                                            + x as usize)
-                                            as usize;
-                                        bg_frame.data_mut(0)[y_index] = color_y as u8;
-
-                                        // Fill U and V planes
-                                        if y % 2 == 0 && x % 2 == 0 {
-                                            let uv_index = ((y / 2) as usize
-                                                * bg_frame.stride(1) as usize
-                                                + (x / 2) as usize)
-                                                as usize;
-                                            bg_frame.data_mut(1)[uv_index] = color_u as u8;
-                                            bg_frame.data_mut(2)[uv_index] = color_v as u8;
-                                        }
+                                // Process the frame plane by plane
+                                {
+                                    let y_plane = bg_frame.data_mut(0);
+                                    for pixel in &precalculated_data {
+                                        let y_index = pixel.y * y_stride + pixel.x;
+                                        y_plane[y_index] = pixel.color_y;
                                     }
                                 }
 
-                                // println!("bg_frame Y plane length: {}", bg_frame.data(0).len());
-                                // println!("bg_frame U plane length: {}", bg_frame.data(1).len());
-                                // println!("bg_frame V plane length: {}", bg_frame.data(2).len());
+                                {
+                                    let u_plane = bg_frame.data_mut(1);
+                                    for pixel in precalculated_data
+                                        .iter()
+                                        .filter(|p| p.y % 2 == 0 && p.x % 2 == 0)
+                                    {
+                                        let uv_index = (pixel.y / 2) * uv_stride + (pixel.x / 2);
+                                        u_plane[uv_index] = pixel.color_u;
+                                    }
+                                }
+
+                                {
+                                    let v_plane = bg_frame.data_mut(2);
+                                    for pixel in precalculated_data
+                                        .iter()
+                                        .filter(|p| p.y % 2 == 0 && p.x % 2 == 0)
+                                    {
+                                        let uv_index = (pixel.y / 2) * uv_stride + (pixel.x / 2);
+                                        v_plane[uv_index] = pixel.color_v;
+                                    }
+                                }
+
+                                let duration3 = start3.elapsed();
+                                println!("start3 Time elapsed: {:?}", duration3);
+
+                                let start10 = Instant::now();
 
                                 // *** Inset Video *** //
 
@@ -555,7 +635,12 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                 // *** Zoom *** //
                                 let time_elapsed = frame_index * 1000 / fps_int;
 
+                                let duration10 = start10.elapsed();
+                                println!("start10 Time elapsed: {:?}", duration10);
+
                                 println!("Time Elapsed: {}", time_elapsed);
+
+                                let start4 = Instant::now();
 
                                 // // Determine the portion of the background to zoom in on.
                                 // // Start with the entire frame and gradually decrease these dimensions.
@@ -898,6 +983,11 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                 //     target_zoom_left
                                 // );
 
+                                let duration4: time::Duration = start4.elapsed();
+                                println!("start4 Time elapsed: {:?}", duration4);
+
+                                let start5 = Instant::now();
+
                                 // Create a new Video frame for the zoomed portion
                                 let mut zoom_frame = frame::Video::new(
                                     Pixel::from(bg_frame.format()),
@@ -1064,6 +1154,9 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                 // dropped when they go out of scope. The memory management is handled by Rust's
                                 // ownership system.
 
+                                let duration5: time::Duration = start5.elapsed();
+                                println!("start5 Time elapsed: {:?}", duration5);
+
                                 // Send the zoom_frame to the encoder
                                 encoder.send_frame(&zoom_frame).map_err(|e| {
                                     format!("Error sending frame for encoding: {}", e)
@@ -1107,6 +1200,9 @@ fn transform_video(configPath: String) -> Result<String, String> {
                             Err(e) => return Err(format!("Error receiving decoded frame: {}", e)),
                         }
                     }
+
+                    let duration2 = start2.elapsed();
+                    println!("start2 Time elapsed: {:?}", duration2);
                 }
             }
             // Some(Err(e)) => return Err(format!("Error reading packet: {}", e)),

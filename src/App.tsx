@@ -5,7 +5,8 @@ import "./App.css";
 
 function App() {
   async function handleTransformVideo() {
-    const configPath = "../stubs/tour1/config.json";
+    // const configPath = "../stubs/tour1/config.json";
+    const configPath = "../stubs/test1/config.json";
     await invoke("transform_video", { configPath })
   }
 
