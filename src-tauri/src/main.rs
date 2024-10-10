@@ -164,7 +164,7 @@ struct FramePixel {
 
 #[tauri::command]
 fn transform_video(configPath: String) -> Result<String, String> {
-    let start1 = Instant::now();
+    // let start1 = Instant::now();
 
     // for debugging purposes
     match env::current_dir() {
@@ -469,12 +469,12 @@ fn transform_video(configPath: String) -> Result<String, String> {
         })
         .collect(); // Collect all the results
 
-    let duration1 = start1.elapsed();
-    println!(
-        "start1 Time elapsed: {:?}, {:?}",
-        duration1,
-        precalculated_data.len()
-    );
+    // let duration1 = start1.elapsed();
+    // println!(
+    //     "start1 Time elapsed: {:?}, {:?}",
+    //     duration1,
+    //     precalculated_data.len()
+    // );
 
     // Main loop
     'main_loop: loop {
@@ -482,7 +482,7 @@ fn transform_video(configPath: String) -> Result<String, String> {
             Some((stream, packet)) => {
                 if stream.index() == video_stream_index {
                     // Process video packets
-                    let start2 = Instant::now();
+                    // let start2 = Instant::now();
 
                     decoder
                         .send_packet(&packet)
@@ -504,7 +504,7 @@ fn transform_video(configPath: String) -> Result<String, String> {
 
                                 let precalculated_data = precalculated_data.clone();
 
-                                let start3 = Instant::now();
+                                // let start3 = Instant::now();
 
                                 // Get the strides first
                                 let y_stride = bg_frame.stride(0) as usize;
@@ -541,10 +541,10 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                     }
                                 }
 
-                                let duration3 = start3.elapsed();
-                                println!("start3 Time elapsed: {:?}", duration3);
+                                // let duration3 = start3.elapsed();
+                                // println!("start3 Time elapsed: {:?}", duration3);
 
-                                let start10 = Instant::now();
+                                // let start10 = Instant::now();
 
                                 // *** Inset Video *** //
 
@@ -593,54 +593,125 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                 // Now `scaled_frame` contains the scaled-down version of the original frame
 
                                 // Insert the scaled frame into the background frame
-                                let offset_x = (bg_frame.width() - scaled_frame.width()) / 2; // Center the video
+                                // let offset_x = (bg_frame.width() - scaled_frame.width()) / 2; // Center the video
+                                // let offset_y = (bg_frame.height() - scaled_frame.height()) / 2;
+
+                                // for y in 0..scaled_frame.height() {
+                                //     for x in 0..scaled_frame.width() {
+                                //         // Copy Y plane
+                                //         let bg_y_index = (y + offset_y) as usize
+                                //             * bg_frame.stride(0)
+                                //             + (x + offset_x) as usize;
+                                //         let scaled_y_index =
+                                //             y as usize * scaled_frame.stride(0) + x as usize;
+                                //         bg_frame.data_mut(0)[bg_y_index] =
+                                //             scaled_frame.data(0)[scaled_y_index];
+
+                                //         // Copy U and V planes
+                                //         if y % 2 == 0 && x % 2 == 0 {
+                                //             // U plane
+                                //             let bg_u_index = ((y + offset_y) / 2) as usize
+                                //                 * bg_frame.stride(1)
+                                //                 + ((x + offset_x) / 2) as usize;
+                                //             let scaled_u_index = (y / 2) as usize
+                                //                 * scaled_frame.stride(1)
+                                //                 + (x / 2) as usize;
+                                //             bg_frame.data_mut(1)[bg_u_index] =
+                                //                 scaled_frame.data(1)[scaled_u_index];
+
+                                //             // V plane
+                                //             let bg_v_index = ((y + offset_y) / 2) as usize
+                                //                 * bg_frame.stride(2)
+                                //                 + ((x + offset_x) / 2) as usize;
+                                //             let scaled_v_index = (y / 2) as usize
+                                //                 * scaled_frame.stride(2)
+                                //                 + (x / 2) as usize;
+                                //             bg_frame.data_mut(2)[bg_v_index] =
+                                //                 scaled_frame.data(2)[scaled_v_index];
+                                //         }
+                                //     }
+                                // }
+
+                                let offset_x = (bg_frame.width() - scaled_frame.width()) / 2;
                                 let offset_y = (bg_frame.height() - scaled_frame.height()) / 2;
 
-                                for y in 0..scaled_frame.height() {
-                                    for x in 0..scaled_frame.width() {
-                                        // Copy Y plane
-                                        let bg_y_index = (y + offset_y) as usize
-                                            * bg_frame.stride(0)
-                                            + (x + offset_x) as usize;
-                                        let scaled_y_index =
-                                            y as usize * scaled_frame.stride(0) + x as usize;
-                                        bg_frame.data_mut(0)[bg_y_index] =
-                                            scaled_frame.data(0)[scaled_y_index];
+                                let bg_stride = bg_frame.stride(0);
 
-                                        // Copy U and V planes
-                                        if y % 2 == 0 && x % 2 == 0 {
-                                            // U plane
-                                            let bg_u_index = ((y + offset_y) / 2) as usize
-                                                * bg_frame.stride(1)
-                                                + ((x + offset_x) / 2) as usize;
-                                            let scaled_u_index = (y / 2) as usize
-                                                * scaled_frame.stride(1)
-                                                + (x / 2) as usize;
-                                            bg_frame.data_mut(1)[bg_u_index] =
-                                                scaled_frame.data(1)[scaled_u_index];
+                                // Y plane
+                                {
+                                    let bg_y = bg_frame.data_mut(0);
+                                    let scaled_y = scaled_frame.data(0);
+                                    let scaled_stride = scaled_frame.stride(0);
 
-                                            // V plane
-                                            let bg_v_index = ((y + offset_y) / 2) as usize
-                                                * bg_frame.stride(2)
-                                                + ((x + offset_x) / 2) as usize;
-                                            let scaled_v_index = (y / 2) as usize
-                                                * scaled_frame.stride(2)
-                                                + (x / 2) as usize;
-                                            bg_frame.data_mut(2)[bg_v_index] =
-                                                scaled_frame.data(2)[scaled_v_index];
-                                        }
+                                    for y in 0..scaled_frame.height() {
+                                        let bg_row_start =
+                                            (y + offset_y) as usize * bg_stride + offset_x as usize;
+                                        let scaled_row_start = y as usize * scaled_stride;
+                                        let row_width = scaled_frame.width() as usize;
+
+                                        bg_y[bg_row_start..bg_row_start + row_width]
+                                            .copy_from_slice(
+                                                &scaled_y[scaled_row_start
+                                                    ..scaled_row_start + row_width],
+                                            );
+                                    }
+                                }
+
+                                let bg_stride = bg_frame.stride(1);
+
+                                // U plane
+                                {
+                                    let bg_u = bg_frame.data_mut(1);
+                                    let scaled_u = scaled_frame.data(1);
+                                    let scaled_stride = scaled_frame.stride(1);
+
+                                    for y in (0..scaled_frame.height()).step_by(2) {
+                                        let bg_row_start = ((y + offset_y) / 2) as usize
+                                            * bg_stride
+                                            + (offset_x / 2) as usize;
+                                        let scaled_row_start = (y / 2) as usize * scaled_stride;
+                                        let row_width = (scaled_frame.width() / 2) as usize;
+
+                                        bg_u[bg_row_start..bg_row_start + row_width]
+                                            .copy_from_slice(
+                                                &scaled_u[scaled_row_start
+                                                    ..scaled_row_start + row_width],
+                                            );
+                                    }
+                                }
+
+                                let bg_stride = bg_frame.stride(2);
+
+                                // V plane
+                                {
+                                    let bg_v = bg_frame.data_mut(2);
+                                    let scaled_v = scaled_frame.data(2);
+                                    let scaled_stride = scaled_frame.stride(2);
+
+                                    for y in (0..scaled_frame.height()).step_by(2) {
+                                        let bg_row_start = ((y + offset_y) / 2) as usize
+                                            * bg_stride
+                                            + (offset_x / 2) as usize;
+                                        let scaled_row_start = (y / 2) as usize * scaled_stride;
+                                        let row_width = (scaled_frame.width() / 2) as usize;
+
+                                        bg_v[bg_row_start..bg_row_start + row_width]
+                                            .copy_from_slice(
+                                                &scaled_v[scaled_row_start
+                                                    ..scaled_row_start + row_width],
+                                            );
                                     }
                                 }
 
                                 // *** Zoom *** //
                                 let time_elapsed = frame_index * 1000 / fps_int;
 
-                                let duration10 = start10.elapsed();
-                                println!("start10 Time elapsed: {:?}", duration10);
+                                // let duration10 = start10.elapsed();
+                                // println!("start10 Time elapsed: {:?}", duration10);
 
                                 println!("Time Elapsed: {}", time_elapsed);
 
-                                let start4 = Instant::now();
+                                // let start4 = Instant::now();
 
                                 // // Determine the portion of the background to zoom in on.
                                 // // Start with the entire frame and gradually decrease these dimensions.
@@ -983,10 +1054,10 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                 //     target_zoom_left
                                 // );
 
-                                let duration4: time::Duration = start4.elapsed();
-                                println!("start4 Time elapsed: {:?}", duration4);
+                                // let duration4: time::Duration = start4.elapsed();
+                                // println!("start4 Time elapsed: {:?}", duration4);
 
-                                let start5 = Instant::now();
+                                // let start5 = Instant::now();
 
                                 // Create a new Video frame for the zoomed portion
                                 let mut zoom_frame = frame::Video::new(
@@ -1154,8 +1225,8 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                 // dropped when they go out of scope. The memory management is handled by Rust's
                                 // ownership system.
 
-                                let duration5: time::Duration = start5.elapsed();
-                                println!("start5 Time elapsed: {:?}", duration5);
+                                // let duration5: time::Duration = start5.elapsed();
+                                // println!("start5 Time elapsed: {:?}", duration5);
 
                                 // Send the zoom_frame to the encoder
                                 encoder.send_frame(&zoom_frame).map_err(|e| {
@@ -1201,8 +1272,8 @@ fn transform_video(configPath: String) -> Result<String, String> {
                         }
                     }
 
-                    let duration2 = start2.elapsed();
-                    println!("start2 Time elapsed: {:?}", duration2);
+                    // let duration2 = start2.elapsed();
+                    // println!("start2 Time elapsed: {:?}", duration2);
                 }
             }
             // Some(Err(e)) => return Err(format!("Error reading packet: {}", e)),
