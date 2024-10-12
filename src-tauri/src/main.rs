@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::env;
 use std::error::Error;
 use std::fs;
@@ -68,6 +69,117 @@ fn frictional_animation(target: f64, current: f64, velocity: f64, friction: f64)
     let direction = target - current;
     let new_velocity = direction * (-friction).exp();
     new_velocity
+}
+
+// fn ease_out_frictional_animation(
+//     target: f64,
+//     current: f64,
+//     velocity: f64,
+//     friction: f64,
+//     ease_out_factor: f64,
+// ) -> f64 {
+//     let direction = target - current;
+//     let new_velocity = direction * (-friction).exp();
+//     let ease_out_velocity =
+//         new_velocity * (1.0 - (ease_out_factor * (1.0 - (current / target).abs())));
+//     ease_out_velocity
+// }
+
+const BUFFER_SIZE: usize = 10; // Increased buffer size for better shake detection
+const MAX_SCALE_CHANGE: f64 = 0.05; // Maximum scale change per frame
+const DAMPING_FACTOR: f64 = 0.95; // Damping factor for general smoothing
+const EMA_ALPHA: f64 = 0.2; // EMA smoothing intensity
+const SHAKE_THRESHOLD: f64 = 0.01; // Threshold for considering movement as shaky
+const SHAKE_WINDOW: usize = 5; // Number of recent frames to check for shakiness
+const SHAKE_SMOOTHING_FACTOR: f64 = 0.5; // Additional smoothing when shake is detected
+const MAX_DISPLACEMENT: f64 = 10.0; // Adjust this value based on your needs
+const MIN_SPEED_THRESHOLD: f64 = 0.1; // Minimum speed to continue animation
+
+struct SmoothAnimation {
+    buffer: VecDeque<f64>,
+    ema_velocity: f64,
+    shake_detection_buffer: VecDeque<f64>,
+}
+
+impl SmoothAnimation {
+    fn new() -> Self {
+        SmoothAnimation {
+            buffer: VecDeque::with_capacity(BUFFER_SIZE),
+            ema_velocity: 0.0,
+            shake_detection_buffer: VecDeque::with_capacity(SHAKE_WINDOW),
+        }
+    }
+
+    fn update(&mut self, value: f64) -> f64 {
+        self.buffer.push_back(value);
+        if self.buffer.len() > BUFFER_SIZE {
+            self.buffer.pop_front();
+        }
+        let smooth_value = self.buffer.iter().sum::<f64>() / self.buffer.len() as f64;
+
+        // Shake detection
+        if self.shake_detection_buffer.len() >= SHAKE_WINDOW {
+            self.shake_detection_buffer.pop_front();
+        }
+        self.shake_detection_buffer.push_back(value);
+
+        if self.is_shaky() {
+            // Apply additional smoothing
+            let current = self.buffer.back().unwrap_or(&smooth_value);
+            smooth_value * SHAKE_SMOOTHING_FACTOR + current * (1.0 - SHAKE_SMOOTHING_FACTOR)
+        } else {
+            smooth_value
+        }
+    }
+
+    fn smooth_velocity(&mut self, new_velocity: f64) -> f64 {
+        self.ema_velocity = EMA_ALPHA * new_velocity + (1.0 - EMA_ALPHA) * self.ema_velocity;
+        self.ema_velocity
+    }
+
+    fn is_shaky(&self) -> bool {
+        if self.shake_detection_buffer.len() < SHAKE_WINDOW {
+            return false;
+        }
+
+        let mut direction_changes = 0;
+        let mut prev_diff = 0.0;
+
+        let buffer_slice: Vec<f64> = self.shake_detection_buffer.iter().cloned().collect();
+
+        for i in 1..buffer_slice.len() {
+            let diff = buffer_slice[i] - buffer_slice[i - 1];
+            if diff.abs() > SHAKE_THRESHOLD {
+                if diff * prev_diff < 0.0 {
+                    direction_changes += 1;
+                }
+                prev_diff = diff;
+            }
+        }
+
+        direction_changes > SHAKE_WINDOW / 2
+    }
+}
+
+fn ease_out_frictional_animation(
+    target: f64,
+    current: f64,
+    velocity: f64,
+    friction: f64,
+    ease_out_factor: f64,
+) -> f64 {
+    let direction = target - current;
+    let distance_ratio = (current - target).abs() / target.abs();
+    let damping = DAMPING_FACTOR.powf(1.0 - distance_ratio);
+    let new_velocity = direction * (-friction).exp() * damping;
+    let ease_out_velocity = new_velocity * (1.0 - (ease_out_factor * (1.0 - distance_ratio)));
+    ease_out_velocity
+        .min(MAX_DISPLACEMENT)
+        .max(-MAX_DISPLACEMENT)
+}
+
+fn make_even(num: u32) -> u32 {
+    num - (num % 2)
 }
 
 fn calculate_y(r: f64, g: f64, b: f64) -> f64 {
@@ -415,6 +527,8 @@ fn transform_video(configPath: String) -> Result<String, String> {
     let mut zooming_in = false;
     let mut zooming_out = false;
 
+    let mut speed = f64::INFINITY; // Initialize with a high value
+
     // Get a packet iterator
     let mut packet_iter = input_context.packets();
 
@@ -482,6 +596,9 @@ fn transform_video(configPath: String) -> Result<String, String> {
     // These should be declared outside the loop and updated each iteration
     let mut current_width = decoder.width() as f64;
     let mut current_height = decoder.height() as f64;
+
+    let mut smoothed_velocity_width = decoder.width() as f64;
+    let mut smoothed_velocity_height = decoder.width() as f64;
 
     // Main loop
     'main_loop: loop {
@@ -575,69 +692,16 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                 )
                                 .map_err(|e| format!("Failed to create scaling context: {}", e))?;
 
-                                // Create a new frame for the scaled video
-                                // let mut scaled_frame = Video::empty();
-                                // scaled_frame.set_format(decoded_frame.format());
-                                // scaled_frame.set_width(scaled_width);
-                                // scaled_frame.set_height(scaled_height);
-
                                 let mut scaled_frame = frame::Video::new(
                                     Pixel::from(decoded_frame.format()),
                                     scaled_width,
                                     scaled_height,
                                 );
 
-                                // TODO: needed?
-                                // scaled_frame.alloc_buffer().map_err(|e| {
-                                //     format!("Failed to allocate buffer for scaled frame: {}", e)
-                                // })?;
-
                                 // Perform the scaling
                                 sws_context
                                     .run(&decoded_frame, &mut scaled_frame)
                                     .map_err(|e| format!("Failed to scale frame: {}", e))?;
-
-                                // Now `scaled_frame` contains the scaled-down version of the original frame
-
-                                // Insert the scaled frame into the background frame
-                                // let offset_x = (bg_frame.width() - scaled_frame.width()) / 2; // Center the video
-                                // let offset_y = (bg_frame.height() - scaled_frame.height()) / 2;
-
-                                // for y in 0..scaled_frame.height() {
-                                //     for x in 0..scaled_frame.width() {
-                                //         // Copy Y plane
-                                //         let bg_y_index = (y + offset_y) as usize
-                                //             * bg_frame.stride(0)
-                                //             + (x + offset_x) as usize;
-                                //         let scaled_y_index =
-                                //             y as usize * scaled_frame.stride(0) + x as usize;
-                                //         bg_frame.data_mut(0)[bg_y_index] =
-                                //             scaled_frame.data(0)[scaled_y_index];
-
-                                //         // Copy U and V planes
-                                //         if y % 2 == 0 && x % 2 == 0 {
-                                //             // U plane
-                                //             let bg_u_index = ((y + offset_y) / 2) as usize
-                                //                 * bg_frame.stride(1)
-                                //                 + ((x + offset_x) / 2) as usize;
-                                //             let scaled_u_index = (y / 2) as usize
-                                //                 * scaled_frame.stride(1)
-                                //                 + (x / 2) as usize;
-                                //             bg_frame.data_mut(1)[bg_u_index] =
-                                //                 scaled_frame.data(1)[scaled_u_index];
-
-                                //             // V plane
-                                //             let bg_v_index = ((y + offset_y) / 2) as usize
-                                //                 * bg_frame.stride(2)
-                                //                 + ((x + offset_x) / 2) as usize;
-                                //             let scaled_v_index = (y / 2) as usize
-                                //                 * scaled_frame.stride(2)
-                                //                 + (x / 2) as usize;
-                                //             bg_frame.data_mut(2)[bg_v_index] =
-                                //                 scaled_frame.data(2)[scaled_v_index];
-                                //         }
-                                //     }
-                                // }
 
                                 let offset_x = (bg_frame.width() - scaled_frame.width()) / 2;
                                 let offset_y = (bg_frame.height() - scaled_frame.height()) / 2;
@@ -720,21 +784,6 @@ fn transform_video(configPath: String) -> Result<String, String> {
 
                                 // let start4 = Instant::now();
 
-                                // // Determine the portion of the background to zoom in on.
-                                // // Start with the entire frame and gradually decrease these dimensions.
-                                // static mut TARGET_WIDTH: f64 = 0.0;
-                                // static mut TARGET_HEIGHT: f64 = 0.0;
-
-                                // // Initialize the static variables if they haven't been set yet
-                                // unsafe {
-                                //     if TARGET_WIDTH == 0.0 {
-                                //         TARGET_WIDTH = bg_frame.width() as f64;
-                                //     }
-                                //     if TARGET_HEIGHT == 0.0 {
-                                //         TARGET_HEIGHT = bg_frame.height() as f64;
-                                //     }
-                                // }
-
                                 let mut target_width = bg_frame.width() as f64;
                                 let mut target_height = bg_frame.height() as f64;
 
@@ -798,24 +847,113 @@ fn transform_video(configPath: String) -> Result<String, String> {
 
                                 println!("target and current {} {}", target_width, current_width);
 
+                                // let mut smooth_scale = SmoothAnimation::new();
+                                // let original_width = bg_frame.width() as f64;
+                                // let original_height = bg_frame.height() as f64;
+
+                                // if zooming_in || zooming_out {
+                                //     let current_scale = current_width / original_width;
+                                //     let target_scale = target_width / original_width;
+                                //     let velocity_scale = smooth_scale.ema_velocity / original_width;
+
+                                //     let scale_change = ease_out_frictional_animation(
+                                //         target_scale,
+                                //         current_scale,
+                                //         velocity_scale,
+                                //         friction2,
+                                //         0.5,
+                                //     );
+
+                                //     // let width_change = scale_change * original_width;
+                                //     // let smoothed_velocity =
+                                //     //     smooth_scale.smooth_velocity(width_change);
+                                //     // current_width += smoothed_velocity;
+                                //     // current_width = smooth_scale.update(current_width);
+
+                                //     let width_change = scale_change * original_width;
+                                //     speed = smooth_scale.smooth_velocity(width_change);
+
+                                //     if zooming_out || (speed.abs() > MIN_SPEED_THRESHOLD) {
+                                //         // zoom out seems to have less shakiness so its fine
+                                //         current_width += speed;
+                                //         current_width = smooth_scale.update(current_width);
+                                //     } else {
+                                //         if (current_width > target_width - MIN_SPEED_THRESHOLD) {
+                                //             speed = -(MIN_SPEED_THRESHOLD);
+                                //             current_width += speed;
+                                //             current_width = smooth_scale.update(current_width);
+                                //         }
+                                //     }
+                                //     // else {
+                                //     //     current_width = target_width; // Snap to target if speed is below threshold
+                                //     // }
+
+                                //     current_height =
+                                //         original_height * (current_width / original_width);
+
+                                //     println!(
+                                //         "Width: {:.2}, Height: {:.2}, Scale: {:.4}, Shaky: {}",
+                                //         current_width,
+                                //         current_height,
+                                //         current_width / original_width,
+                                //         smooth_scale.is_shaky()
+                                //     );
+                                // }
+
                                 if zooming_in || zooming_out {
                                     let displacement_width = frictional_animation(
                                         target_width,
                                         current_width,
                                         velocity_width,
                                         friction2,
+                                        // 0.5,
                                     );
                                     let displacement_height = frictional_animation(
                                         target_height,
                                         current_height,
                                         velocity_height,
                                         friction2,
+                                        // 0.5,
                                     );
 
-                                    current_width += displacement_width;
-                                    current_height += displacement_height;
-                                    velocity_width += displacement_width;
-                                    velocity_height += displacement_height;
+                                    if zooming_out
+                                        || (displacement_width.abs() > MIN_SPEED_THRESHOLD)
+                                    {
+                                        current_width += displacement_width;
+                                        current_height += displacement_height;
+                                        velocity_width += displacement_width;
+                                        velocity_height += displacement_height;
+                                    } else {
+                                        if (current_width > target_width - MIN_SPEED_THRESHOLD) {
+                                            let displacement_width = -(MIN_SPEED_THRESHOLD);
+                                            let displacement_height = displacement_width
+                                                * (bg_frame.width() as f64
+                                                    / bg_frame.height() as f64);
+                                            current_width += displacement_width;
+                                            current_height += displacement_height;
+                                            velocity_width += displacement_width;
+                                            velocity_height += displacement_height;
+                                        }
+                                    }
+
+                                    // let smoothing_factor = 0.8;
+
+                                    // // Apply smoothing by blending the previous displacement with the new one
+                                    // // You can store smoothed_velocity_width/height between frames to preserve smoothness.
+                                    // smoothed_velocity_width = smoothing_factor
+                                    //     * smoothed_velocity_width
+                                    //     + (1.0 - smoothing_factor) * displacement_width;
+                                    // smoothed_velocity_height = smoothing_factor
+                                    //     * smoothed_velocity_height
+                                    //     + (1.0 - smoothing_factor) * displacement_height;
+
+                                    // // Apply the smoothed values to update the current width/height and velocity
+                                    // current_width += smoothed_velocity_width;
+                                    // current_height += smoothed_velocity_height;
+
+                                    // // Optionally, update velocity based on the smoothed displacement
+                                    // velocity_width += smoothed_velocity_width;
+                                    // velocity_height += smoothed_velocity_height;
                                 }
 
                                 // println!("zooming_in {}", zooming_in);
@@ -834,8 +972,8 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                 //     target_width, target_height, current_width, current_height
                                 // );
 
-                                velocity_width = velocity_width.clamp(-10000.0, 10000.0);
-                                velocity_height = velocity_height.clamp(-10000.0, 10000.0);
+                                // velocity_width = velocity_width.clamp(-10000.0, 10000.0);
+                                // velocity_height = velocity_height.clamp(-10000.0, 10000.0);
 
                                 let (used_width, used_height) = if (enable_dimension_smoothing
                                     && (zooming_in || zooming_out))
@@ -874,11 +1012,11 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                     (current_width, current_height)
                                 };
 
-                                // Double-check even numbers (though this should be redundant now)
-                                let used_width = (used_width / 2.0).floor() * 2.0;
-                                let used_height = (used_height / 2.0).floor() * 2.0;
+                                // // Double-check even numbers (though this should be redundant now)
+                                // let used_width = (used_width / 2.0).floor() * 2.0;
+                                // let used_height = (used_height / 2.0).floor() * 2.0;
 
-                                // println!("used: {}", used_width);
+                                println!("used dimensions: {} {}", used_width, used_height);
 
                                 // Make sure the dimensions are integers and within the frame size.
                                 let zoom_width =
@@ -1075,9 +1213,14 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                     used_zoom_left = smooth_zoom_left;
                                 } else {
                                     // Ensure even numbers for non-smoothed zoom
-                                    used_zoom_top = (zoom_top as f64 / 2.0).floor() * 2.0;
-                                    used_zoom_left = (zoom_left as f64 / 2.0).floor() * 2.0;
+                                    used_zoom_top = ((zoom_top as f64) / 2.0).floor() * 2.0;
+                                    used_zoom_left = ((zoom_left as f64) / 2.0).floor() * 2.0;
                                 }
+
+                                println!("Used Info: {}, {}", used_zoom_top, used_zoom_left);
+
+                                let zoom_width = make_even(zoom_width);
+                                let zoom_height = make_even(zoom_height);
 
                                 let scaled_pts =
                                     frame_index.rescale(encoder.time_base(), stream.time_base());
@@ -1125,7 +1268,7 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                 let linesize2: [c_int; 3] =
                                     [y_stride as c_int, u_stride as c_int, v_stride as c_int];
 
-                                println!("linesizes {:?} {:?}", linesize, linesize2);
+                                // println!("linesizes {:?} {:?}", linesize, linesize2);
 
                                 // let y_stride = data_frame.stride(0); // For Y plane
                                 // let u_stride = data_frame.stride(1); // For U plane
@@ -1135,8 +1278,8 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                 //     [y_stride as c_int, u_stride as c_int, v_stride as c_int];
 
                                 // Get pointers to the zoomed portion in the background frame
-                                let used_zoom_top_int = used_zoom_top.round() as usize;
-                                let used_zoom_left_int = used_zoom_left.round() as usize;
+                                let used_zoom_top_int = used_zoom_top as usize;
+                                let used_zoom_left_int = used_zoom_left as usize;
 
                                 let mut zoom_data: [*const u8; 3] = [std::ptr::null(); 3];
 
