@@ -495,7 +495,7 @@ fn transform_video(configPath: String) -> Result<String, String> {
     let auto_zoom = false;
 
     let friction1 = 2.5;
-    let friction2 = 3.0;
+    let friction2 = 4.0;
     let friction3 = 5.0;
     let easing_factor = 1.0;
 
