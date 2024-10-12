@@ -383,7 +383,7 @@ fn transform_video(configPath: String) -> Result<String, String> {
     let auto_zoom = false;
 
     let friction1 = 2.5;
-    let friction2 = 2.0;
+    let friction2 = 3.0;
     let friction3 = 5.0;
     let easing_factor = 1.0;
 
@@ -402,8 +402,9 @@ fn transform_video(configPath: String) -> Result<String, String> {
     let mut used_width = 0.0;
     let mut used_height = 0.0;
 
-    let animation_duration = 2000;
+    let animation_duration = 5000;
 
+    // frictional_animation causes gradual slowdown, but smoothing is supposed to improved shakiness
     let enable_dimension_smoothing = true;
     let enable_coord_smoothing = true;
 
@@ -477,6 +478,10 @@ fn transform_video(configPath: String) -> Result<String, String> {
     //     duration1,
     //     precalculated_data.len()
     // );
+
+    // These should be declared outside the loop and updated each iteration
+    let mut current_width = decoder.width() as f64;
+    let mut current_height = decoder.height() as f64;
 
     // Main loop
     'main_loop: loop {
@@ -787,11 +792,11 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                 target_width = bg_frame.width() as f64 * current_multiplier;
                                 target_height = bg_frame.height() as f64 * current_multiplier;
 
-                                // println!("target_width {}", target_width);
+                                // // These should be declared outside the loop and updated each iteration
+                                // let mut current_width = bg_frame.width() as f64;
+                                // let mut current_height = bg_frame.height() as f64;
 
-                                // These should be declared outside the loop and updated each iteration
-                                let mut current_width = bg_frame.width() as f64;
-                                let mut current_height = bg_frame.height() as f64;
+                                println!("target and current {} {}", target_width, current_width);
 
                                 if zooming_in || zooming_out {
                                     let displacement_width = frictional_animation(
@@ -835,7 +840,7 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                 let (used_width, used_height) = if (enable_dimension_smoothing
                                     && (zooming_in || zooming_out))
                                 {
-                                    let smoothing_factor1 = 0.8;
+                                    let smoothing_factor1 = 0.95;
                                     let (smooth_width, smooth_height) = if successful_frame_index
                                         == 0
                                     {
@@ -1036,7 +1041,7 @@ fn transform_video(configPath: String) -> Result<String, String> {
                                     let frame_proportion =
                                         bg_frame.height() as f64 / bg_frame.width() as f64;
 
-                                    let smoothing_factor = 0.25; // Adjust this value to change the amount of smoothing (0-1)
+                                    let smoothing_factor = 0.1; // Adjust this value to change the amount of smoothing (0-1)
                                     let top_change = (1.0 - smoothing_factor) * smooth_zoom_top; // TODO: need not just on side change but also on dimensions?
                                     smooth_zoom_top = zoom_top as f64 + top_change;
                                     smooth_zoom_left =
