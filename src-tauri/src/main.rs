@@ -405,8 +405,8 @@ fn transform_video(configPath: String) -> Result<String, String> {
     let animation_duration = 5000;
 
     // frictional_animation causes gradual slowdown, but smoothing is supposed to improved shakiness
-    let enable_dimension_smoothing = true;
-    let enable_coord_smoothing = true;
+    let enable_dimension_smoothing = false;
+    let enable_coord_smoothing = false;
 
     let mut frame_index = 0;
     let mut successful_frame_index = 0;
