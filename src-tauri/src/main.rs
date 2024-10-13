@@ -1451,9 +1451,338 @@ fn transform_video(configPath: String) -> Result<String, String> {
     Ok("Video transformation completed successfully".to_string())
 }
 
+#[tauri::command]
+fn create_project(app_handle: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let current_project_id = Uuid::new_v4().to_string();
+    let save_path = app_handle.path_resolver().app_data_dir().unwrap();
+    let project_dir = save_path.join("projects").join(&current_project_id);
+
+    fs::create_dir_all(&project_dir).map_err(|e| e.to_string())?;
+
+    Ok(json!({ "projectId": current_project_id }))
+}
+
+use device_query::{DeviceQuery, DeviceState, MouseState};
+use serde_json::json;
+use std::path::Path;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tauri::Manager;
+use uuid::Uuid;
+
+// #[cfg(target_os = "windows")]
+// use windows_capture::{
+//     capture::GraphicsCaptureApiHandler,
+//     frame::Frame,
+//     graphics_capture_api::InternalCaptureControl,
+//     monitor::Monitor,
+//     settings::{ColorFormat, CursorCaptureSettings, DrawBorderSettings, Settings},
+// };
+
+#[cfg(target_os = "windows")]
+use windows::{
+    Win32::Foundation::{BOOL, HWND, LPARAM, RECT},
+    Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowRect, GetWindowTextW, IsWindowVisible},
+};
+
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn get_sources() -> Result<Vec<WindowInfo>, String> {
+    // use windows::Win32::Foundation::BOOLEAN;
+
+    let mut windows: Vec<WindowInfo> = Vec::new();
+
+    // EnumWindows callback to enumerate all top-level windows
+    unsafe extern "system" fn enum_windows_callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        // Only capture windows that are visible
+        if IsWindowVisible(hwnd).as_bool() {
+            // Get the window title and its rect (position/size)
+            if let Ok((title, rect)) = get_window_info(hwnd) {
+                // let sources = lparam.0 as *mut Vec<serde_json::Value>;
+                let sources = lparam.0 as *mut Vec<WindowInfo>;
+                // let entry = json!({
+                //     "hwnd": hwnd.0 as usize,  // Converting HWND to usize for JSON compatibility
+                //     "title": title,
+                //     "rect": {
+                //         "left": rect.left,
+                //         "top": rect.top,
+                //         "right": rect.right,
+                //         "bottom": rect.bottom,
+                //     }
+                // });
+                let window_info = WindowInfo {
+                    hwnd: hwnd.0 as usize,
+                    title: title,
+                    rect: RectInfo {
+                        left: rect.left,
+                        top: rect.top,
+                        right: rect.right,
+                        bottom: rect.bottom,
+                        width: rect.right - rect.left,
+                        height: rect.bottom - rect.top,
+                    },
+                };
+                // (*sources).push(window_info);
+                (*sources).push(window_info);
+            }
+        }
+
+        // 1 // Continue enumeration
+        true.into() // Continue enumeration
+    }
+
+    unsafe {
+        // Enumerate all top-level windows
+        EnumWindows(
+            Some(enum_windows_callback),
+            LPARAM(&mut windows as *mut _ as isize),
+        )
+        .expect("Couldn't enumerate windows");
+    }
+
+    Ok(windows)
+}
+
+#[cfg(target_os = "windows")]
+fn get_window_info(hwnd: HWND) -> Result<(String, RECT), String> {
+    unsafe {
+        let mut rect = RECT::default();
+        GetWindowRect(hwnd, &mut rect).expect("Couldn't get WindowRect");
+        // if GetWindowRect(hwnd, &mut rect)
+        //     .expect("Couldn't get WindowRect")
+        //     .as_bool()
+        // {
+        let mut title: [u16; 512] = [0; 512];
+        let len = GetWindowTextW(hwnd, &mut title);
+        let title = String::from_utf16_lossy(&title[..len as usize]);
+        Ok((title, rect))
+        // } else {
+        //     Err("Failed to get window information".to_string())
+        // }
+    }
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+struct RectInfo {
+    left: i32,
+    right: i32,
+    top: i32,
+    bottom: i32,
+    width: i32,
+    height: i32,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+struct WindowInfo {
+    hwnd: usize,
+    title: String,
+    rect: RectInfo,
+}
+
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn get_window_info_by_usize(hwnd_value: usize) -> Result<WindowInfo, String> {
+    // Convert the usize back into an HWND
+    let hwnd = HWND(hwnd_value as *mut _);
+
+    if let Ok((title, rect)) = get_window_info(hwnd) {
+        // let window_info = json!({
+        //     "hwnd": hwnd_value,
+        //     "title": title,
+        //     "rect": {
+        //         "left": rect.left,
+        //         "top": rect.top,
+        //         "right": rect.right,
+        //         "bottom": rect.bottom,
+        //     }
+        // });
+        let window_info = WindowInfo {
+            hwnd: hwnd_value,
+            title: title,
+            rect: RectInfo {
+                left: rect.left,
+                top: rect.top,
+                right: rect.right,
+                bottom: rect.bottom,
+                width: rect.right - rect.left,
+                height: rect.bottom - rect.top,
+            },
+        };
+        Ok(window_info)
+    } else {
+        Err("Failed to get window information".to_string())
+    }
+}
+
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn save_source_data(
+    app_handle: tauri::AppHandle,
+    hwnd: usize,
+    current_project_id: String,
+) -> Result<serde_json::Value, String> {
+    let window_info = get_window_info_by_usize(hwnd).expect("Couldn't get window info by usize");
+
+    let source_data = json!({
+        "id": hwnd.to_string(),
+        "name": window_info.title,
+        "width": window_info.rect.width,
+        "height": window_info.rect.height,
+        "x": window_info.rect.left,
+        "y": window_info.rect.top,
+    });
+
+    let save_path = app_handle.path_resolver().app_data_dir().unwrap();
+    let file_path = save_path
+        .join("projects")
+        .join(&current_project_id)
+        .join("sourceData.json");
+
+    fs::write(
+        file_path,
+        serde_json::to_string_pretty(&source_data).unwrap(),
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(source_data)
+}
+
+struct MouseTrackingState {
+    mouse_positions: Arc<Mutex<Vec<serde_json::Value>>>,
+    start_time: SystemTime,
+}
+
+#[tauri::command]
+fn start_mouse_tracking(app_handle: tauri::AppHandle) -> Result<bool, String> {
+    let state = MouseTrackingState {
+        mouse_positions: Arc::new(Mutex::new(Vec::new())),
+        start_time: SystemTime::now(),
+    };
+
+    let mouse_positions = state.mouse_positions.clone();
+    let start_time = state.start_time;
+
+    thread::spawn(move || {
+        let device_state = DeviceState::new();
+        loop {
+            let mouse: MouseState = device_state.get_mouse();
+            let now = SystemTime::now();
+            let timestamp = now.duration_since(start_time).unwrap().as_millis();
+
+            let position = json!({
+                "x": mouse.coords.0,
+                "y": mouse.coords.1,
+                "timestamp": timestamp
+            });
+
+            mouse_positions.lock().unwrap().push(position);
+            thread::sleep(Duration::from_millis(100));
+        }
+    });
+
+    app_handle.manage(state);
+
+    Ok(true)
+}
+
+#[tauri::command]
+fn stop_mouse_tracking(app_handle: tauri::AppHandle, project_id: String) -> Result<bool, String> {
+    let state = app_handle.state::<MouseTrackingState>();
+    let mouse_positions = state.mouse_positions.lock().unwrap().clone();
+
+    // TODO: stop mouse tracking?
+
+    let save_path = app_handle.path_resolver().app_data_dir().unwrap();
+    let file_path = save_path
+        .join("projects")
+        .join(&project_id)
+        .join("mousePositions.json");
+
+    fs::write(
+        file_path,
+        serde_json::to_string_pretty(&mouse_positions).unwrap(),
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(true)
+}
+
+#[tauri::command]
+fn save_video_blob(
+    app_handle: tauri::AppHandle,
+    project_id: String,
+    buffer: Vec<u8>,
+) -> Result<bool, String> {
+    let save_path = app_handle.path_resolver().app_data_dir().unwrap();
+    let file_path = save_path
+        .join("projects")
+        .join(&project_id)
+        .join("originalCapture.webm");
+
+    fs::write(file_path, buffer).map_err(|e| e.to_string())?;
+
+    Ok(true)
+}
+
+#[tauri::command]
+fn get_project_data(
+    app_handle: tauri::AppHandle,
+    current_project_id: String,
+) -> Result<serde_json::Value, String> {
+    let save_path = app_handle.path_resolver().app_data_dir().unwrap();
+    let project_path = save_path.join("projects").join(&current_project_id);
+
+    let mouse_positions: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(project_path.join("mousePositions.json")).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+
+    let source_data: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(project_path.join("sourceData.json")).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+
+    let original_capture =
+        fs::read(project_path.join("originalCapture.webm")).map_err(|e| e.to_string())?;
+
+    // let screens = Screen::all().map_err(|e| e.to_string())?;
+    // let primary_screen = screens
+    //     .into_iter()
+    //     .find(|s| s.display_info.is_primary)
+    //     .unwrap();
+    // let width = primary_screen.display_info.width;
+    // let height = primary_screen.display_info.height;
+
+    // let resolution = if width <= 1920 && height <= 1080 {
+    //     "hd"
+    // } else {
+    //     "4k"
+    // };
+
+    Ok(json!({
+        "currentProjectId": current_project_id,
+        "mousePositions": mouse_positions,
+        "originalCapture": original_capture,
+        "sourceData": source_data,
+        // "resolution": resolution,
+    }))
+}
+
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![transform_video])
+        .setup(|app| {
+            // Any additional setup can go here
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            transform_video,
+            create_project,
+            get_sources,
+            save_source_data,
+            start_mouse_tracking,
+            stop_mouse_tracking,
+            save_video_blob,
+            get_project_data
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
