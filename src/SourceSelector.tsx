@@ -33,13 +33,16 @@ export interface SourceData {
   y: number;
 }
 
-function SourceSelector({ setCurrentView = (value: string) => {} }) {
+function SourceSelector({
+  projectId = "",
+  setProjectId = (valeu: string) => {},
+  setCurrentView = (value: string) => {},
+}: any) {
   const [sources, setSources] = React.useState<Source[]>([]);
   const [selectedSource, setSelectedSource] = React.useState<number | null>(
     null
   );
   const [isRecording, setIsRecording] = React.useState<boolean>(false);
-  const [projectId, setProjectId] = React.useState<string | null>(null);
 
   const loadSourcePreviews = async () => {
     let sources: Source[] = await invoke("get_sources");
@@ -181,6 +184,7 @@ function SourceSelector({ setCurrentView = (value: string) => {} }) {
     setIsRecording(false);
     await invoke("stop_mouse_tracking", { projectId });
     await invoke("stop_video_capture");
+    setCurrentView("editor");
   };
 
   React.useEffect(() => {

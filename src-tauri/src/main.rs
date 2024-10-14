@@ -19,6 +19,7 @@ use std::error::Error;
 use std::fs;
 use std::fs::File;
 use std::io::BufReader;
+use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time;
@@ -1466,8 +1467,13 @@ fn transform_video(
     let source_path = project_path.join("sourceData.json");
     let input_path = project_path.join("capture.mp4");
     let output_path = project_path.join("output.mp4");
+    let compressed_path = project_path.join("output_compressed.mp4");
 
     let config_path = project_path.join("config.json");
+
+    let config_path_str = config_path.to_string_lossy().to_string();
+    let output_path_str = output_path.to_string_lossy().to_string();
+    let compressed_path_str = compressed_path.to_string_lossy().to_string();
 
     let config = Config {
         duration: duration,
@@ -1483,8 +1489,26 @@ fn transform_video(
         .map_err(|e| e.to_string())?;
 
     thread::spawn(move || {
-        let config_path_str = output_path.to_string_lossy().to_string();
         do_transform_video(config_path_str).expect("Couldn't transform video");
+
+        let status = Command::new("ffmpeg")
+            .arg("-i")
+            .arg(output_path_str)
+            .arg("-vcodec")
+            .arg("libx264") // or "libx265" for H.265/HEVC compression
+            .arg("-crf")
+            .arg("5")
+            .arg(compressed_path_str)
+            .status()
+            .expect("Failed to execute ffmpeg command");
+
+        if status.success() {
+            println!("Video compressed successfully!");
+            app_handle.emit_all("video-export", "success").unwrap();
+        } else {
+            eprintln!("Error compressing the video.");
+            app_handle.emit_all("video-export", "failure").unwrap();
+        }
     });
 
     Ok("Transformation has been initiated in thread".to_string())
@@ -1668,6 +1692,7 @@ fn save_source_data(
         "height": window_info.rect.height,
         "x": window_info.rect.left,
         "y": window_info.rect.top,
+        "scale_factor": 1.0
     });
 
     let save_path = app_handle.path_resolver().app_data_dir().unwrap();
@@ -1792,8 +1817,7 @@ fn get_project_data(
     )
     .map_err(|e| e.to_string())?;
 
-    let original_capture =
-        fs::read(project_path.join("originalCapture.webm")).map_err(|e| e.to_string())?;
+    let original_capture = fs::read(project_path.join("capture.mp4")).map_err(|e| e.to_string())?;
 
     // let screens = Screen::all().map_err(|e| e.to_string())?;
     // let primary_screen = screens
