@@ -277,8 +277,7 @@ struct FramePixel {
     y: usize,
 }
 
-#[tauri::command]
-fn transform_video(configPath: String) -> Result<String, String> {
+fn do_transform_video(configPath: String) -> Result<String, String> {
     // let start1 = Instant::now();
 
     // for debugging purposes
@@ -1450,6 +1449,45 @@ fn transform_video(configPath: String) -> Result<String, String> {
         .map_err(|e| format!("Error occurred when writing trailer: {}", e))?;
 
     Ok("Video transformation completed successfully".to_string())
+}
+
+#[tauri::command]
+fn transform_video(
+    app_handle: tauri::AppHandle,
+    project_id: String,
+    duration: i32,
+    zoom_info: Vec<ZoomInfo>,
+    background_info: Vec<BackgroundInfo>,
+) -> Result<String, String> {
+    let save_path = app_handle.path_resolver().app_data_dir().unwrap();
+    let project_path = save_path.join("projects").join(&project_id);
+
+    let positions_path = project_path.join("mousePositions.json");
+    let source_path = project_path.join("sourceData.json");
+    let input_path = project_path.join("capture.mp4");
+    let output_path = project_path.join("output.mp4");
+
+    let config_path = project_path.join("config.json");
+
+    let config = Config {
+        duration: duration,
+        positions_file: positions_path.to_string_lossy().to_string(),
+        source_file: source_path.to_string_lossy().to_string(),
+        input_file: input_path.to_string_lossy().to_string(),
+        output_file: output_path.to_string_lossy().to_string(),
+        zoom_info: zoom_info,
+        background_info: background_info,
+    };
+
+    fs::write(config_path, serde_json::to_string_pretty(&config).unwrap())
+        .map_err(|e| e.to_string())?;
+
+    thread::spawn(move || {
+        let config_path_str = output_path.to_string_lossy().to_string();
+        do_transform_video(config_path_str).expect("Couldn't transform video");
+    });
+
+    Ok("Transformation has been initiated in thread".to_string())
 }
 
 #[tauri::command]
