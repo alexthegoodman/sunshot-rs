@@ -45,6 +45,7 @@ function SourceSelector({
     null
   );
   const [isRecording, setIsRecording] = React.useState<boolean>(false);
+  const [isLoading, setIsLoading] = React.useState(false);
 
   const loadSourcePreviews = async () => {
     let sources: Source[] = await invoke("get_sources");
@@ -93,6 +94,7 @@ function SourceSelector({
   const handleStopRecording = async () => {
     // currentMediaRecorder?.stop();
     setIsRecording(false);
+    setIsLoading(true);
     await invoke("stop_mouse_tracking", { projectId });
     await invoke("stop_video_capture", { projectId });
 
@@ -112,6 +114,7 @@ function SourceSelector({
       console.log("video-compression event", event.payload); // Logs: "Hello from the backend!"
 
       if (event.payload === "success") {
+        setIsLoading(false);
         setTimeout(() => {
           setCurrentView("editor");
         }, 500);
@@ -177,7 +180,7 @@ function SourceSelector({
             ) : (
               <Button
                 onClick={handleStartRecording}
-                disabled={selectedSource ? false : true}
+                disabled={isLoading ? true : selectedSource ? false : true}
               >
                 Start Recording
               </Button>

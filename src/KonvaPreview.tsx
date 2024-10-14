@@ -242,9 +242,22 @@ let zoomInterval: any = null;
 //   );
 // };
 
-const Video = ({ src }: any) => {
+const Video = ({
+  src,
+  positions,
+  zoomTracks,
+  sourceData,
+  playing,
+  stopped,
+  exporting,
+  setCurrentTime,
+  divider,
+  innerWidth,
+  innerHeight,
+}: any) => {
   const imageRef = React.useRef<ImageType>(null);
-  const [size, setSize] = React.useState({ width: 50, height: 50 });
+  const [size, setSize] = React.useState({ width: 0, height: 0 });
+  const [zoomedIn, setZoomedIn] = React.useState(false);
 
   // we need to use "useMemo" here, so we don't create new video elment on any render
   const videoElement = React.useMemo(() => {
@@ -265,8 +278,8 @@ const Video = ({ src }: any) => {
   React.useEffect(() => {
     const onload = function () {
       setSize({
-        width: videoElement.videoWidth,
-        height: videoElement.videoHeight,
+        width: innerWidth,
+        height: innerHeight,
       });
     };
     videoElement.addEventListener("loadedmetadata", onload);
@@ -275,32 +288,146 @@ const Video = ({ src }: any) => {
     };
   }, [videoElement]);
 
+  const zoomIn = (
+    zoomFactor: number,
+    zoomPoint: { x: number; y: number },
+    easing: KonvaEasings
+  ) => {
+    // console.info("zoomIn", zoomFactor, zoomPoint);
+    setZoomedIn(true);
+
+    imageRef.current?.to({
+      scaleX: zoomFactor,
+      scaleY: zoomFactor,
+      duration: zoomedIn ? 0.1 : 2,
+      easing: Konva.Easings[easing],
+      // x
+      // y
+      offsetX: zoomPoint.x,
+      offsetY: zoomPoint.y,
+    });
+  };
+
+  const zoomOut = (easing: KonvaEasings) => {
+    // console.info("zoomOut");
+    setZoomedIn(false);
+
+    imageRef.current?.to({
+      scaleX: 1,
+      scaleY: 1,
+      duration: 2,
+      easing: Konva.Easings[easing],
+      // x
+      // y
+      offsetX: 0,
+      offsetY: 0,
+    });
+  };
+
   // use Konva.Animation to redraw a layer
-  React.useEffect(() => {
+  //   React.useEffect(() => {
+
+  //   }, [videoElement]);
+
+  const playCanvasVideo = () => {
     console.info("srces", src[0], src[1], src[2]);
 
     videoElement.play();
 
     const layer = imageRef?.current?.getLayer();
 
-    const anim = new Konva.Animation(() => {}, layer);
+    anim = new Konva.Animation(() => {}, layer);
     anim.start();
 
+    // mouse follow animation
+    // const zoomFactor = 2;
+    const refreshRate = 100;
+    let point = 0;
+    let timeElapsed = 0;
+
+    zoomInterval = setInterval(() => {
+      timeElapsed += refreshRate;
+
+      if (!exporting) {
+        setCurrentTime(timeElapsed);
+      }
+
+      zoomTracks.forEach((track: ZoomTrack) => {
+        if (
+          Math.floor(timeElapsed) <= Math.floor(track.start) &&
+          Math.floor(timeElapsed) + refreshRate > Math.floor(track.start)
+        ) {
+          const predictionOffset = 0;
+          const zoomPoint = {
+            x:
+              ((positions[point + predictionOffset].x - sourceData.x) / 2) *
+              0.8,
+            y:
+              ((positions[point + predictionOffset].y - sourceData.y) / 2) * // TODO: scale this. divide by 2 for hd
+              0.8,
+          };
+
+          zoomIn(track.zoomFactor.previewValue, zoomPoint, track.easing);
+        }
+
+        if (
+          Math.floor(timeElapsed) < Math.floor(track.end) &&
+          Math.floor(timeElapsed) + refreshRate >= Math.floor(track.end)
+        ) {
+          zoomOut(track.easing);
+        }
+      });
+
+      point++;
+
+      if (point >= positions.length) {
+        // zoomOut(videoElement);
+        clearInterval(zoomInterval);
+      }
+    }, refreshRate);
+
     return () => {
-      anim.stop();
+      anim?.stop();
     };
-  }, [videoElement]);
+  };
+
+  const stopCanvasVideo = () => {
+    // stop anim and pause element
+    if (anim && videoElement) {
+      anim?.stop(); // pause()?
+      videoElement.pause();
+      clearInterval(zoomInterval);
+      setCurrentTime(0);
+      zoomOut(KonvaEasings.Linear);
+
+      if (stopped) {
+        videoElement.currentTime = 0;
+      }
+    }
+  };
+
+  React.useEffect(() => {
+    if (playing) {
+      playCanvasVideo();
+    } else {
+      stopCanvasVideo();
+    }
+
+    return () => {
+      stopCanvasVideo();
+    };
+  }, [playing, stopped]);
 
   return (
     <Image
       ref={imageRef}
       image={videoElement}
-      x={20}
-      y={20}
-      stroke="red"
+      x={0}
+      y={0}
+      //   stroke="red"
       width={size.width}
       height={size.height}
-      draggable
+      draggable={false}
     />
   );
 };
