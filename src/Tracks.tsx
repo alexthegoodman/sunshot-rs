@@ -9,7 +9,7 @@ import {
   ZoomTrack,
   useEditorContext,
 } from "./context/EditorContext/EditorContext";
-import { randomUUID } from "crypto";
+// import { uuidv4 } from "crypto";
 // import { styled } from "styled-components";
 import TrackItem from "./TrackItem";
 import { motion } from "framer-motion";
@@ -18,6 +18,7 @@ import { gradients } from "./VideoProperties";
 import { zooms } from "./ZoomProperties";
 import { Box, styled } from "@mui/material";
 import { useResizeObserver } from "usehooks-ts";
+import { v4 as uuidv4 } from "uuid";
 
 const TracksContainer = styled(Box)`
   position: relative;
@@ -233,7 +234,7 @@ const Tracks: React.FC<any> = ({ originalDuration = null }) => {
   React.useEffect(() => {
     if (originalDuration && !zoomTracks) {
       const initalVideoTrack: VideoTrack = {
-        id: randomUUID(),
+        id: uuidv4(),
         name: "Video Track",
         start: 0,
         end: originalDuration,
@@ -252,7 +253,7 @@ const Tracks: React.FC<any> = ({ originalDuration = null }) => {
         //   zoomFactor: 2,
         // },
         {
-          id: randomUUID(),
+          id: uuidv4(),
           name: "Zoom Track",
           start: 5000,
           end: 12000,
@@ -260,7 +261,7 @@ const Tracks: React.FC<any> = ({ originalDuration = null }) => {
           easing: KonvaEasings.EaseInOut,
         },
         {
-          id: randomUUID(),
+          id: uuidv4(),
           name: "Zoom Track",
           start: 16000,
           end: 25000,
@@ -306,7 +307,7 @@ const Tracks: React.FC<any> = ({ originalDuration = null }) => {
 
   const handleTrackAdd = () => {
     const newTrack: ZoomTrack = {
-      id: randomUUID(),
+      id: uuidv4(),
       name: "Zoom Track",
       start: 0,
       end: 3000,

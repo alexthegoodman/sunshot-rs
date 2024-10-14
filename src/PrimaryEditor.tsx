@@ -1,4 +1,4 @@
-import { Box, Button } from "@mui/material";
+import { Box, Button, CircularProgress } from "@mui/material";
 import { invoke } from "@tauri-apps/api/tauri";
 import KonvaPreview from "./KonvaPreview";
 import { useEffect, useState } from "react";
@@ -9,6 +9,7 @@ import {
 import { listen } from "@tauri-apps/api/event";
 import Tracks from "./Tracks";
 import Properties from "./Properties";
+import useAsyncEffect from "use-async-effect";
 
 export interface StoredSourceData {
   id: string;
@@ -25,6 +26,8 @@ export interface ProjectData {
   originalCapture: any;
   sourceData: StoredSourceData;
 }
+
+let mounts = 0;
 
 function PrimaryEditor({ projectId = null }: any) {
   const [{ videoTrack, zoomTracks }, dispatch] = useEditorContext();
@@ -47,6 +50,7 @@ function PrimaryEditor({ projectId = null }: any) {
       projectId,
       mousePositions,
       sourceData,
+      // originalCapture,
       duration
     );
 
@@ -56,12 +60,18 @@ function PrimaryEditor({ projectId = null }: any) {
     setSourceData(sourceData);
   };
 
-  useEffect(() => {
-    getVideoInfo();
+  useAsyncEffect(async () => {
+    console.info("mounts", mounts);
 
-    const unlisten: any = listen<boolean>("video-export", (event) => {
+    if (mounts === 0) {
+      getVideoInfo();
+    }
+
+    const unlisten: any = await listen<boolean>("video-export", (event) => {
       console.log("video-export event", event.payload); // Logs: "Hello from the backend!"
     });
+
+    mounts++;
 
     return () => {
       unlisten();
@@ -82,17 +92,26 @@ function PrimaryEditor({ projectId = null }: any) {
     await invoke("transform_video", {
       projectId,
       duration: originalDuration,
-      zoomInfo: zoomTracks,
+      zoomInfo: zoomTracks.map((zoomTrack) => {
+        return {
+          // id: zoomTrack.id,
+          // name: zoomTrack.name,
+          start: zoomTrack.start,
+          end: zoomTrack.end,
+          // easing: zoomTrack.easing,
+          zoom: zoomTrack.zoomFactor,
+        };
+      }),
       backgroundInfo: videoTrack.gradient,
     });
   }
 
+  if (!positions || !originalCapture || !sourceData || !originalDuration) {
+    return <CircularProgress />;
+  }
+
   return (
     <Box display="flex" flexDirection="column">
-      <Button color="success" onClick={handleTransformVideo}>
-        Export Recording
-      </Button>
-
       <Box display="flex" flexDirection="row">
         <Box display="flex" flexDirection="column">
           <KonvaPreview
@@ -100,6 +119,7 @@ function PrimaryEditor({ projectId = null }: any) {
             originalCapture={originalCapture}
             sourceData={sourceData}
             resolution={"hd"}
+            handleTransformVideo={handleTransformVideo}
           />
           <Tracks originalDuration={originalDuration} />
         </Box>

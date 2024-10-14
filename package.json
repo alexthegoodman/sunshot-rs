@@ -23,13 +23,16 @@
     "react-draggable": "^4.4.6",
     "react-konva": "^18.2.10",
     "ts-deepmerge": "^7.0.1",
-    "usehooks-ts": "^3.1.0"
+    "use-async-effect": "^2.2.7",
+    "usehooks-ts": "^3.1.0",
+    "uuid": "^10.0.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^1",
     "@types/blob-to-buffer": "^1.2.2",
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",
+    "@types/uuid": "^10.0.0",
     "@vitejs/plugin-react": "^4.2.1",
     "sass": "^1.79.5",
     "typescript": "^5.2.2",

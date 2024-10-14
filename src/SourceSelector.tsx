@@ -8,6 +8,8 @@ import styles from "./SourceSelector.module.scss";
 import { Box, Button, MenuItem, Select, Typography } from "@mui/material";
 // import SourceSelector from "../components/SourceSelector/SourceSelector";
 import toBuffer from "blob-to-buffer";
+import useAsyncEffect from "use-async-effect";
+import { listen } from "@tauri-apps/api/event";
 
 let currentMediaRecorder: MediaRecorder | null = null;
 
@@ -63,16 +65,9 @@ function SourceSelector({
       return;
     }
 
-    // const hwnd = source.id.split(":")[1];
     const hwnd = source?.hwnd;
 
     console.info("source", source, hwnd);
-
-    // const { projectId } = ipcRenderer.sendSync("create-project");
-    // const sourceData = ipcRenderer.sendSync("save-source-data", {
-    //   windowTitle: source.name,
-    //   hwnd,
-    // });
 
     let { projectId }: { projectId: string } = await invoke("create_project");
     let sourceData: SourceData = await invoke("save_source_data", {
@@ -93,98 +88,15 @@ function SourceSelector({
       height: sourceData.height,
       projectId,
     });
-
-    /**navigator.mediaDevices
-      .getUserMedia({
-        audio: false,
-        video: {
-          mandatory: {
-            chromeMediaSource: "desktop",
-            chromeMediaSourceId: sourceHwnd,
-            width: sourceData.width,
-            height: sourceData.height,
-            minFrameRate: 60,
-            maxFrameRate: 60,
-          },
-        },
-      } as any)
-      .then(async (stream) => {
-        console.info("stream", stream);
-
-        const streamSettings = stream.getVideoTracks()[0].getSettings();
-        const streamWidth = stream.getVideoTracks()[0].getSettings().width;
-        const streamHeight = stream.getVideoTracks()[0].getSettings().height;
-
-        console.info(
-          "stream settings",
-          streamSettings,
-          JSON.stringify(streamSettings),
-          streamWidth,
-          streamHeight
-        );
-
-        const stopRecording = async () => {
-          setIsRecording(false);
-          // clearInterval(captureInterval);
-          // ipcRenderer.sendSync("stop-mouse-tracking", { projectId });
-          await invoke("stop_mouse_tracking", { projectId });
-          console.info("stop-mouse-tracking");
-
-          stream.getTracks()[0].stop();
-          const blob = new Blob(chunks, { type: "video/webm" });
-
-          // const arrayBuffer = await blob.arrayBuffer();
-          // const buffer = Buffer.from(arrayBuffer);
-          // const newBlob = new Blob([buffer]);
-
-          // console.info("blog chunks", blob, chunks, buffer);
-
-          // ipcRenderer.sendSync("save-video-blob", {
-          //   projectId,
-          //   buffer,
-          //   sourceId,
-          // });
-
-          toBuffer(blob, async function (err, buffer) {
-            if (err) throw err;
-
-            await invoke("save_video_blob", { projectId, buffer });
-
-            console.info("save-video-blob");
-
-            setCurrentView("editor");
-          });
-
-          // ipcRenderer.sendSync("close-source-picker");
-          // ipcRenderer.sendSync("open-editor", { projectId });
-        };
-
-        const chunks: any = [];
-        currentMediaRecorder = new MediaRecorder(stream, {
-          mimeType: "video/webm; codecs=vp9",
-        });
-        currentMediaRecorder.ondataavailable = (e) => chunks.push(e.data);
-        currentMediaRecorder.onerror = (e) =>
-          console.error("mediaRecorder error", e);
-        currentMediaRecorder.onstop = stopRecording;
-        currentMediaRecorder.start();
-
-        // ipcRenderer.sendSync("start-mouse-tracking");
-        await invoke("start_mouse_tracking");
-
-        setIsRecording(true);
-
-        console.info("start-mouse-tracking");
-      })
-      .catch((error) => console.log(error));*/
   };
 
   const handleStopRecording = async () => {
     // currentMediaRecorder?.stop();
     setIsRecording(false);
     await invoke("stop_mouse_tracking", { projectId });
-    await invoke("stop_video_capture");
-    setCurrentView("editor");
+    await invoke("stop_video_capture", { projectId });
+
+    // wait so video capture can save files and such
   };
 
   React.useEffect(() => {
@@ -192,6 +104,22 @@ function SourceSelector({
 
     return () => {
       // ipcRenderer.removeAllListeners("ping-pong");
+    };
+  }, []);
+
+  useAsyncEffect(async () => {
+    const unlisten: any = await listen<string>("video-compression", (event) => {
+      console.log("video-compression event", event.payload); // Logs: "Hello from the backend!"
+
+      if (event.payload === "success") {
+        setTimeout(() => {
+          setCurrentView("editor");
+        }, 500);
+      }
+    });
+
+    return () => {
+      unlisten();
     };
   }, []);
 

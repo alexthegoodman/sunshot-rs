@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import styles from "./Properties.module.scss";
+// import styles from "./Properties.module.scss";
 // import shared from "../../pages/shared.module.scss";
 
 // import styled from "styled-components";
@@ -37,7 +37,7 @@ const Properties: React.FC<any> = () => {
 
   return (
     <section
-      className={`${styles.properties} spectrum-Typography`}
+      // className={`${styles.properties} spectrum-Typography`}
       style={{ padding: "0 25px" }}
     >
       {!trackData ? (

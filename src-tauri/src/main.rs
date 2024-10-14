@@ -1855,13 +1855,17 @@ use windows_capture::{
 struct Capture {
     encoder: Option<VideoEncoder>,
     is_recording: Arc<Mutex<bool>>,
+    output_path: String,
+    compressed_path: String,
 }
 
 impl GraphicsCaptureApiHandler for Capture {
-    type Flags = (String, u32, u32, Arc<Mutex<bool>>);
+    type Flags = (String, String, u32, u32, Arc<Mutex<bool>>);
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
-    fn new((output_path, width, height, is_recording): Self::Flags) -> Result<Self, Self::Error> {
+    fn new(
+        (output_path, compressed_path, width, height, is_recording): Self::Flags,
+    ) -> Result<Self, Self::Error> {
         let encoder = VideoEncoder::new(
             VideoSettingsBuilder::new(width, height),
             AudioSettingsBuilder::default().disabled(true),
@@ -1872,6 +1876,8 @@ impl GraphicsCaptureApiHandler for Capture {
         Ok(Self {
             encoder: Some(encoder),
             is_recording,
+            output_path,
+            compressed_path,
         })
     }
 
@@ -1928,6 +1934,11 @@ async fn start_video_capture(
         .ok_or("Failed to get app data directory")?;
     let project_path = app_data_dir.join("projects").join(&project_id);
     let output_path = project_path
+        .join("capture_pre.mp4")
+        .to_str()
+        .unwrap()
+        .to_string();
+    let compressed_path = project_path
         .join("capture.mp4")
         .to_str()
         .unwrap()
@@ -1943,7 +1954,13 @@ async fn start_video_capture(
             CursorCaptureSettings::Default,
             DrawBorderSettings::Default,
             ColorFormat::Rgba8,
-            (output_path, 1920, 1080, state.is_recording.clone()),
+            (
+                output_path,
+                compressed_path,
+                1920,
+                1080,
+                state.is_recording.clone(),
+            ),
         );
 
         // std::thread::spawn(move || {
@@ -1959,7 +1976,13 @@ async fn start_video_capture(
             CursorCaptureSettings::Default,
             DrawBorderSettings::Default,
             ColorFormat::Rgba8,
-            (output_path, width, height, state.is_recording.clone()),
+            (
+                output_path,
+                compressed_path,
+                width,
+                height,
+                state.is_recording.clone(),
+            ),
         );
 
         // std::thread::spawn(move || {
@@ -1975,7 +1998,26 @@ async fn start_video_capture(
 }
 
 #[tauri::command]
-async fn stop_video_capture(app_handle: tauri::AppHandle) -> Result<(), String> {
+async fn stop_video_capture(
+    app_handle: tauri::AppHandle,
+    project_id: String,
+) -> Result<(), String> {
+    let app_data_dir = app_handle
+        .path_resolver()
+        .app_data_dir()
+        .ok_or("Failed to get app data directory")?;
+    let project_path = app_data_dir.join("projects").join(&project_id);
+    let output_path = project_path
+        .join("capture_pre.mp4")
+        .to_str()
+        .unwrap()
+        .to_string();
+    let compressed_path = project_path
+        .join("capture.mp4")
+        .to_str()
+        .unwrap()
+        .to_string();
+
     let state = app_handle.state::<MouseTrackingState>();
     let mut is_recording = state.is_recording.lock().unwrap();
 
@@ -1984,6 +2026,70 @@ async fn stop_video_capture(app_handle: tauri::AppHandle) -> Result<(), String> 
     }
 
     *is_recording = false;
+
+    println!("sleep");
+
+    let app_handle = app_handle.clone();
+
+    thread::spawn(move || {
+        let app_handle = app_handle.clone();
+        thread::sleep(Duration::from_millis(5000));
+
+        println!("compress");
+
+        println!(
+            "PATH: {:?}",
+            env::var("PATH").unwrap_or_else(|_| "Not found".to_string())
+        );
+
+        // let status = Command::new("ffmpeg")
+        //     .arg("-i")
+        //     .arg(output_path)
+        //     .arg("-vcodec")
+        //     .arg("libx264") // or "libx265" for H.265/HEVC compression
+        //     .arg("-crf")
+        //     .arg("5")
+        //     .arg(compressed_path)
+        //     .status()
+        //     .expect("Failed to execute ffmpeg command");
+        // let ffmpeg_path = r"C:\Users\alext\scoop\shims\ffmpeg.exe"; // Replace with actual path
+
+        let status = Command::new("ffmpeg")
+            .arg("-i")
+            .arg(output_path)
+            .arg("-nostdin")
+            .arg("-c:v")
+            .arg("libx264")
+            .arg("-crf")
+            .arg("23")
+            .arg(compressed_path)
+            // .arg("-v")
+            // .arg("verbose")
+            // .arg("-ignore_editlist")
+            // .arg("1")
+            // .arg("-i")
+            // .arg(output_path)
+            // .arg("-c:v")
+            // .arg("libx264")
+            // .arg("-preset")
+            // .arg("medium")
+            // .arg("-crf")
+            // .arg("23")
+            // .arg("-c:a")
+            // .arg("copy")
+            // .arg(compressed_path)
+            .status()
+            .expect("Failed to execute ffmpeg command");
+
+        if status.success() {
+            println!("Video compressed successfully!");
+            app_handle.emit_all("video-compression", "success").unwrap();
+        } else {
+            eprintln!("Error compressing the video.");
+            app_handle.emit_all("video-compression", "error").unwrap();
+        }
+    });
+
     Ok(())
 }
 

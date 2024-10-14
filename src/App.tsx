@@ -1,9 +1,14 @@
-import { useMemo, useState } from "react";
+import { useMemo, useReducer, useState } from "react";
 import "./App.css";
 import { CircularProgress, createTheme, ThemeProvider } from "@mui/material";
 import SourceSelector from "./SourceSelector";
 import { getThemeOptions } from "./theme";
 import PrimaryEditor from "./PrimaryEditor";
+import {
+  EditorContext,
+  EditorContextReducer,
+  EditorContextState,
+} from "./context/EditorContext/EditorContext";
 
 function App() {
   const [mode, setMode] = useState<"light" | "dark">("light");
@@ -33,7 +38,15 @@ function App() {
       break;
   }
 
-  return <ThemeProvider theme={theme}>{view}</ThemeProvider>;
+  return (
+    <ThemeProvider theme={theme}>
+      <EditorContext.Provider
+        value={useReducer(EditorContextReducer, EditorContextState) as any}
+      >
+        {view}
+      </EditorContext.Provider>
+    </ThemeProvider>
+  );
 }
 
 export default App;
