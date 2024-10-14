@@ -23,6 +23,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time;
 use std::time::Instant;
+use windows_capture::window::Window;
 
 use rayon::prelude::*;
 
@@ -1646,9 +1647,13 @@ fn save_source_data(
     Ok(source_data)
 }
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 struct MouseTrackingState {
     mouse_positions: Arc<Mutex<Vec<serde_json::Value>>>,
     start_time: SystemTime,
+    is_tracking: Arc<AtomicBool>,
+    is_recording: Arc<Mutex<bool>>,
 }
 
 #[tauri::command]
@@ -1656,14 +1661,17 @@ fn start_mouse_tracking(app_handle: tauri::AppHandle) -> Result<bool, String> {
     let state = MouseTrackingState {
         mouse_positions: Arc::new(Mutex::new(Vec::new())),
         start_time: SystemTime::now(),
+        is_tracking: Arc::new(AtomicBool::new(true)),
+        is_recording: Arc::new(Mutex::new(false)),
     };
 
     let mouse_positions = state.mouse_positions.clone();
     let start_time = state.start_time;
+    let is_tracking = state.is_tracking.clone();
 
     thread::spawn(move || {
         let device_state = DeviceState::new();
-        loop {
+        while is_tracking.load(Ordering::Relaxed) {
             let mouse: MouseState = device_state.get_mouse();
             let now = SystemTime::now();
             let timestamp = now.duration_since(start_time).unwrap().as_millis();
@@ -1687,9 +1695,14 @@ fn start_mouse_tracking(app_handle: tauri::AppHandle) -> Result<bool, String> {
 #[tauri::command]
 fn stop_mouse_tracking(app_handle: tauri::AppHandle, project_id: String) -> Result<bool, String> {
     let state = app_handle.state::<MouseTrackingState>();
-    let mouse_positions = state.mouse_positions.lock().unwrap().clone();
 
-    // TODO: stop mouse tracking?
+    // Signal the tracking thread to stop
+    state.is_tracking.store(false, Ordering::Relaxed);
+
+    // Give the thread some time to finish
+    thread::sleep(Duration::from_millis(200));
+
+    let mouse_positions = state.mouse_positions.lock().unwrap().clone();
 
     let save_path = app_handle.path_resolver().app_data_dir().unwrap();
     let file_path = save_path
@@ -1767,8 +1780,132 @@ fn get_project_data(
     }))
 }
 
+use std::ffi::c_void;
+use windows_capture::{
+    capture::GraphicsCaptureApiHandler,
+    encoder::{AudioSettingsBuilder, ContainerSettingsBuilder, VideoEncoder, VideoSettingsBuilder},
+    frame::Frame,
+    graphics_capture_api::InternalCaptureControl,
+    settings::{ColorFormat, CursorCaptureSettings, DrawBorderSettings, Settings},
+};
+
+struct Capture {
+    encoder: Option<VideoEncoder>,
+    is_recording: Arc<Mutex<bool>>,
+}
+
+impl GraphicsCaptureApiHandler for Capture {
+    type Flags = (String, Arc<Mutex<bool>>);
+    type Error = Box<dyn std::error::Error + Send + Sync>;
+
+    fn new((output_path, is_recording): Self::Flags) -> Result<Self, Self::Error> {
+        let encoder = VideoEncoder::new(
+            VideoSettingsBuilder::new(1920, 1080),
+            AudioSettingsBuilder::default().disabled(true),
+            ContainerSettingsBuilder::default(),
+            &output_path,
+        )?;
+
+        Ok(Self {
+            encoder: Some(encoder),
+            is_recording,
+        })
+    }
+
+    fn on_frame_arrived(
+        &mut self,
+        frame: &mut Frame,
+        capture_control: InternalCaptureControl,
+    ) -> Result<(), Self::Error> {
+        if let Some(encoder) = &mut self.encoder {
+            encoder.send_frame(frame)?;
+        }
+
+        if !*self.is_recording.lock().unwrap() {
+            if let Some(encoder) = self.encoder.take() {
+                encoder.finish()?;
+            }
+            capture_control.stop();
+        }
+
+        Ok(())
+    }
+
+    fn on_closed(&mut self) -> Result<(), Self::Error> {
+        println!("Capture Session Closed");
+        Ok(())
+    }
+}
+
+#[tauri::command]
+async fn start_video_capture(
+    app_handle: tauri::AppHandle,
+    hwnd: usize,
+    project_id: String,
+) -> Result<(), String> {
+    let state = app_handle.state::<MouseTrackingState>();
+    let mut is_recording = state.is_recording.lock().unwrap();
+
+    if *is_recording {
+        return Err("Already recording".to_string());
+    }
+
+    *is_recording = true;
+    drop(is_recording);
+
+    let hwnd = HWND(hwnd as *mut _);
+    let raw_hwnd = hwnd.0 as *mut c_void;
+    let target_window: Window = unsafe { Window::from_raw_hwnd(raw_hwnd) };
+
+    let app_data_dir = app_handle
+        .path_resolver()
+        .app_data_dir()
+        .ok_or("Failed to get app data directory")?;
+    let project_path = app_data_dir.join("projects").join(&project_id);
+    let output_path = project_path
+        .join("capture.mp4")
+        .to_str()
+        .unwrap()
+        .to_string();
+
+    let settings = Settings::new(
+        target_window,
+        CursorCaptureSettings::Default,
+        DrawBorderSettings::Default,
+        ColorFormat::Rgba8,
+        (output_path, state.is_recording.clone()),
+    );
+
+    // std::thread::spawn(move || {
+    if let Err(e) = Capture::start(settings) {
+        eprintln!("Capture error: {}", e);
+        // Ensure is_recording is set to false if an error occurs
+        *state.is_recording.lock().unwrap() = false;
+    }
+    // });
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn stop_video_capture(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let state = app_handle.state::<MouseTrackingState>();
+    let mut is_recording = state.is_recording.lock().unwrap();
+
+    if !*is_recording {
+        return Err("Not currently recording".to_string());
+    }
+
+    *is_recording = false;
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
+        // .manage(Arc::new(Mutex::new(CaptureState {
+        //     capture_handler: None,
+        //     frame_handler: None,
+        // })))
         .setup(|app| {
             // Any additional setup can go here
             Ok(())
@@ -1781,7 +1918,9 @@ fn main() {
             start_mouse_tracking,
             stop_mouse_tracking,
             save_video_blob,
-            get_project_data
+            get_project_data,
+            start_video_capture,
+            stop_video_capture
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
