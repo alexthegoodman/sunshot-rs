@@ -7,6 +7,8 @@ import {
   useEditorContext,
 } from "./context/EditorContext/EditorContext";
 import { listen } from "@tauri-apps/api/event";
+import Tracks from "./Tracks";
+import Properties from "./Properties";
 
 export interface StoredSourceData {
   id: string;
@@ -86,16 +88,25 @@ function PrimaryEditor({ projectId = null }: any) {
   }
 
   return (
-    <Box>
-      <KonvaPreview
-        positions={positions}
-        originalCapture={originalCapture}
-        sourceData={sourceData}
-        resolution={"hd"}
-      />
+    <Box display="flex" flexDirection="column">
       <Button color="success" onClick={handleTransformVideo}>
         Export Recording
       </Button>
+
+      <Box display="flex" flexDirection="row">
+        <Box display="flex" flexDirection="column">
+          <KonvaPreview
+            positions={positions}
+            originalCapture={originalCapture}
+            sourceData={sourceData}
+            resolution={"hd"}
+          />
+          <Tracks originalDuration={originalDuration} />
+        </Box>
+        <Box>
+          <Properties />
+        </Box>
+      </Box>
     </Box>
   );
 }
