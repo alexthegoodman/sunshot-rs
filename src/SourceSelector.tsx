@@ -84,7 +84,12 @@ function SourceSelector({ setCurrentView = (value: string) => {} }) {
 
     setIsRecording(true);
     await invoke("start_mouse_tracking");
-    await invoke("start_video_capture", { hwnd: sourceHwnd, projectId });
+    await invoke("start_video_capture", {
+      hwnd: sourceHwnd,
+      width: sourceData.width,
+      height: sourceData.height,
+      projectId,
+    });
 
     /**navigator.mediaDevices
       .getUserMedia({

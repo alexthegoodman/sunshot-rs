@@ -1781,6 +1781,7 @@ fn get_project_data(
 }
 
 use std::ffi::c_void;
+use windows_capture::monitor::Monitor;
 use windows_capture::{
     capture::GraphicsCaptureApiHandler,
     encoder::{AudioSettingsBuilder, ContainerSettingsBuilder, VideoEncoder, VideoSettingsBuilder},
@@ -1795,12 +1796,12 @@ struct Capture {
 }
 
 impl GraphicsCaptureApiHandler for Capture {
-    type Flags = (String, Arc<Mutex<bool>>);
+    type Flags = (String, u32, u32, Arc<Mutex<bool>>);
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
-    fn new((output_path, is_recording): Self::Flags) -> Result<Self, Self::Error> {
+    fn new((output_path, width, height, is_recording): Self::Flags) -> Result<Self, Self::Error> {
         let encoder = VideoEncoder::new(
-            VideoSettingsBuilder::new(1920, 1080),
+            VideoSettingsBuilder::new(width, height),
             AudioSettingsBuilder::default().disabled(true),
             ContainerSettingsBuilder::default(),
             &output_path,
@@ -1841,6 +1842,8 @@ impl GraphicsCaptureApiHandler for Capture {
 async fn start_video_capture(
     app_handle: tauri::AppHandle,
     hwnd: usize,
+    width: u32,
+    height: u32,
     project_id: String,
 ) -> Result<(), String> {
     let state = app_handle.state::<MouseTrackingState>();
@@ -1868,21 +1871,43 @@ async fn start_video_capture(
         .unwrap()
         .to_string();
 
-    let settings = Settings::new(
-        target_window,
-        CursorCaptureSettings::Default,
-        DrawBorderSettings::Default,
-        ColorFormat::Rgba8,
-        (output_path, state.is_recording.clone()),
-    );
+    // hardcode hd for testing to avoid miscolored recording,
+    // TODO: scale to fullscreen width / height for users
+    if (width > 1920 || height > 1080) {
+        let primary_monitor = Monitor::primary().expect("There is no primary monitor");
 
-    // std::thread::spawn(move || {
-    if let Err(e) = Capture::start(settings) {
-        eprintln!("Capture error: {}", e);
-        // Ensure is_recording is set to false if an error occurs
-        *state.is_recording.lock().unwrap() = false;
+        let settings = Settings::new(
+            primary_monitor,
+            CursorCaptureSettings::Default,
+            DrawBorderSettings::Default,
+            ColorFormat::Rgba8,
+            (output_path, 1920, 1080, state.is_recording.clone()),
+        );
+
+        // std::thread::spawn(move || {
+        if let Err(e) = Capture::start(settings) {
+            eprintln!("Capture error: {}", e);
+            // Ensure is_recording is set to false if an error occurs
+            *state.is_recording.lock().unwrap() = false;
+        }
+        // });
+    } else {
+        let settings = Settings::new(
+            target_window,
+            CursorCaptureSettings::Default,
+            DrawBorderSettings::Default,
+            ColorFormat::Rgba8,
+            (output_path, width, height, state.is_recording.clone()),
+        );
+
+        // std::thread::spawn(move || {
+        if let Err(e) = Capture::start(settings) {
+            eprintln!("Capture error: {}", e);
+            // Ensure is_recording is set to false if an error occurs
+            *state.is_recording.lock().unwrap() = false;
+        }
+        // });
     }
-    // });
 
     Ok(())
 }
