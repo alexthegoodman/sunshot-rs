@@ -360,11 +360,14 @@ const Video = ({
           const predictionOffset = 0;
           const zoomPoint = {
             x:
-              ((positions[point + predictionOffset].x - sourceData.x) / 2) *
+              ((positions[point + predictionOffset].x - sourceData.x) / 4) *
               0.8,
+            //  + (3840 / 4) * 0.1, // add frame spacing
+            // TODO: scale this. divide by 2 for hd, plus 2 more for ui inset
             y:
-              ((positions[point + predictionOffset].y - sourceData.y) / 2) * // TODO: scale this. divide by 2 for hd
+              ((positions[point + predictionOffset].y - sourceData.y) / 4) *
               0.8,
+            //   + (2160 / 4) * 0.1,
           };
 
           zoomIn(track.zoomFactor.previewValue, zoomPoint, track.easing);

@@ -99,10 +99,10 @@ function PrimaryEditor({ projectId = null }: any) {
           start: zoomTrack.start,
           end: zoomTrack.end,
           // easing: zoomTrack.easing,
-          zoom: zoomTrack.zoomFactor,
+          zoom: zoomTrack.zoomFactor.exportValue,
         };
       }),
-      backgroundInfo: videoTrack.gradient,
+      backgroundInfo: [videoTrack.gradient.exportProps],
     });
   }
 
