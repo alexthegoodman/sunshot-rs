@@ -1,4 +1,4 @@
-import React, { useState, useReducer } from "react";
+import React from "react";
 
 export enum KonvaEasings {
   Linear = "Linear",

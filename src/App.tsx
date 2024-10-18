@@ -11,7 +11,7 @@ import {
 } from "./context/EditorContext/EditorContext";
 
 function App() {
-  const [mode, setMode] = useState<"light" | "dark">("light");
+  const [mode] = useState<"light" | "dark">("light");
   const theme = useMemo(() => createTheme(getThemeOptions(mode)), [mode]);
 
   const [currentView, setCurrentView] = useState("source");

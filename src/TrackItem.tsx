@@ -9,7 +9,7 @@ import { useEditorContext } from "./context/EditorContext/EditorContext";
 let listenerAttached = 0;
 
 const TrackItem: React.FC<any> = ({
-  constraintsRef = null,
+  // constraintsRef = null,
   track = null,
   trackWidth = 1,
   trackHeight = 1,
@@ -17,14 +17,14 @@ const TrackItem: React.FC<any> = ({
   handleClick = () => console.info("handleClick"),
   updateTrack = () => console.info("updateTrack"),
 }) => {
-  const [{ zoomTracks, selectedTrack }, dispatch] = useEditorContext();
+  const [{ zoomTracks }, dispatch] = useEditorContext();
 
-  const { id, start, end, zoomFactor } = track;
+  const { id, start, end } = track;
 
-  const [translating, setTranslating] = React.useState(false);
+  const [translating] = React.useState(false);
   const [resizingLeft, setResizingLeft] = React.useState(false);
   const [resizingRight, setResizingRight] = React.useState(false);
-  const [withinLeft, setWithinLeft] = React.useState(false);
+  // const [withinLeft, setWithinLeft] = React.useState(false);
 
   //   const [liveStart, setLiveStart] = React.useState(start);
   //   const [liveEnd, setLiveEnd] = React.useState(end);
@@ -39,7 +39,7 @@ const TrackItem: React.FC<any> = ({
 
   React.useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      const { clientX, clientY } = e;
+      const { clientX } = e;
       const wrapper = document.getElementById("videoTrackWrapper");
       const targetTrackItem = document.getElementById(id);
       const clickAreaOffset = 200;
@@ -56,15 +56,15 @@ const TrackItem: React.FC<any> = ({
       const targetTrackItemRect = targetTrackItem.getBoundingClientRect();
       const { left, right, width } = targetTrackItemRect;
       const {
-        left: wrapperLeft,
-        right: wrapperRight,
+        // left: wrapperLeft,
+        // right: wrapperRight,
         width: wrapperWidth,
       } = wrapperRect;
 
-      const pixelPerMs = originalDuration / wrapperWidth;
+      // const pixelPerMs = originalDuration / wrapperWidth;
       const msPerPixel = wrapperWidth / originalDuration;
-      const baseX = clientX - 200; // -200 to account for offset
-      const totalX = left + (clientX - left);
+      // const baseX = clientX - 200; // -200 to account for offset
+      // const totalX = left + (clientX - left);
 
       //   if (translating) {
       //     const pixelsForX = baseX * pixelPerMs;
@@ -86,7 +86,7 @@ const TrackItem: React.FC<any> = ({
       //     // setLiveEnd(newEnd);
       //   }
       if (resizingLeft) {
-        const newWidth = width - (clientX - left);
+        // const newWidth = width - (clientX - left);
         const newLeft = left + (clientX - left);
         // targetTrackItem.style.width = `${newWidth}px`;
         // targetTrackItem.style.left = `${newLeft}px`;
@@ -124,35 +124,35 @@ const TrackItem: React.FC<any> = ({
     setResizingLeft(false);
   };
 
-  const leftHandleEnter = () => {
-    console.info("leftHandleEnter");
-    setWithinLeft(true);
-  };
+  // const leftHandleEnter = () => {
+  //   console.info("leftHandleEnter");
+  //   setWithinLeft(true);
+  // };
 
-  const leftHandleLeave = () => {
-    console.info("leftHandleLeave");
-    setWithinLeft(false);
-    setResizingLeft(false);
-  };
+  // const leftHandleLeave = () => {
+  //   console.info("leftHandleLeave");
+  //   setWithinLeft(false);
+  //   setResizingLeft(false);
+  // };
 
-  const itemHandleDown = (e: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
-    console.info("itemHandleDown");
-    setTranslating(true);
-  };
+  // const itemHandleDown = (e: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
+  //   console.info("itemHandleDown");
+  //   setTranslating(true);
+  // };
 
-  const itemHandleUp = () => {
-    console.info("itemHandleUp");
-    setTranslating(false);
-  };
+  // const itemHandleUp = () => {
+  //   console.info("itemHandleUp");
+  //   setTranslating(false);
+  // };
 
-  const itemHandleEnter = () => {
-    console.info("itemHandleEnter");
-  };
+  // const itemHandleEnter = () => {
+  //   console.info("itemHandleEnter");
+  // };
 
-  const itemHandleLeave = () => {
-    console.info("itemHandleLeave");
-    setTranslating(false);
-  };
+  // const itemHandleLeave = () => {
+  //   console.info("itemHandleLeave");
+  //   setTranslating(false);
+  // };
 
   const rightHandleDown = () => {
     console.info("rightHandleDown");
@@ -164,9 +164,9 @@ const TrackItem: React.FC<any> = ({
     setResizingRight(false);
   };
 
-  const onDrag: DraggableEventHandler = (e, data) => {
+  const onDrag: DraggableEventHandler = (_, data) => {
     // set live start and end
-    const { node, x, deltaX, lastX } = data;
+    const { x } = data;
 
     console.info("ondragstop", x, msPerPixel);
 
@@ -185,8 +185,8 @@ const TrackItem: React.FC<any> = ({
     );
   };
 
-  const onResize: ResizeCallback = (e: any, side, ref, d) => {
-    const { width, height } = ref.style;
+  const onResize: ResizeCallback = (e: any, side, ref) => {
+    const { width } = ref.style;
     const newWidth = parseInt(width);
     const direction = e.movementX > 0 ? "right" : "left";
 

@@ -100,7 +100,7 @@ const GradientGrid = styled(Box)`
 `;
 
 const VideoProperties: React.FC<any> = ({
-  trackData = null,
+  // trackData = null,
   updateTrack = () => console.info("updateTrack"),
 }) => {
   return (

@@ -4,13 +4,13 @@ import * as React from "react";
 
 // import { ZoomPropertiesProps } from "./ZoomProperties.d";
 
-import {
-  KonvaEasingLabels,
-  KonvaEasings,
-  VideoTrack,
-  ZoomTrack,
-  useEditorContext,
-} from "./context/EditorContext/EditorContext";
+// import {
+//   KonvaEasingLabels,
+//   KonvaEasings,
+//   VideoTrack,
+//   ZoomTrack,
+//   useEditorContext,
+// } from "./context/EditorContext/EditorContext";
 // import NumberField from "../NumberField/NumberField";
 // import SelectField from "../SelectField/SelectField";
 import { Box, styled } from "@mui/material";
@@ -58,18 +58,20 @@ export const zooms = [
 
 const FlexForm = styled(Box)``;
 
-const ZoomProperties: React.FC<any> = ({
-  trackData = null,
-  updateTrack = () => console.info("updateTrack"),
-}) => {
-  const easingOptions = Object.values(KonvaEasingLabels).map((label, i) => ({
-    id: `${i}`,
-    label,
-  }));
-  const selectedEasingId = easingOptions.find(
-    (option) =>
-      KonvaEasingLabels[trackData?.easing as KonvaEasings] === option.label
-  )?.id;
+const ZoomProperties: React.FC<any> = (
+  {
+    // trackData = null,
+    // updateTrack = () => console.info("updateTrack"),
+  }
+) => {
+  // const easingOptions = Object.values(KonvaEasingLabels).map((label, i) => ({
+  //   id: `${i}`,
+  //   label,
+  // }));
+  // const selectedEasingId = easingOptions.find(
+  //   (option) =>
+  //     KonvaEasingLabels[trackData?.easing as KonvaEasings] === option.label
+  // )?.id;
 
   return (
     <div>

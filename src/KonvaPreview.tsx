@@ -4,13 +4,12 @@ import * as React from "react";
 
 // import { KonvaPreviewProps } from "./KonvaPreview.d";
 
-import { Stage, Layer, Rect, Text, Group, Image, Shape } from "react-konva";
+import { Stage, Layer, Rect, Group, Image } from "react-konva";
 import Konva from "konva";
 // import useImage from "use-image";
 import { Image as ImageType } from "konva/lib/shapes/Image";
 import {
   KonvaEasings,
-  Track,
   useEditorContext,
   ZoomTrack,
 } from "./context/EditorContext/EditorContext";
@@ -251,7 +250,7 @@ const Video = ({
   stopped,
   exporting,
   setCurrentTime,
-  divider,
+  // divider,
   innerWidth,
   innerHeight,
 }: any) => {
@@ -439,7 +438,7 @@ const KonvaPreview = ({
   positions = null,
   originalCapture = null,
   sourceData = null,
-  resolution = null,
+  // resolution = null,
   handleTransformVideo = () => {},
 }: any) => {
   const [
@@ -460,7 +459,7 @@ const KonvaPreview = ({
   //   const innerDivider = resolution === "hd" ? divider / 2 : divider;
   const width = 3840 / 4; // divide by 2 for HD, then 2 more for UI inset
   const height = 2160 / 4;
-  const proportion = sourceData.width / sourceData.height;
+  // const proportion = sourceData.width / sourceData.height;
   const innerWidth = (sourceData.width / 2) * 0.8; // already hd, divide by 2 for UI. TODO: don't hardcode
   const innerHeight = (sourceData.height / 2) * 0.8;
 

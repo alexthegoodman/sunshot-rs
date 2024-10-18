@@ -1,7 +1,7 @@
-import { Box, Button, CircularProgress } from "@mui/material";
+import { Box, CircularProgress } from "@mui/material";
 import { invoke } from "@tauri-apps/api/tauri";
 import KonvaPreview from "./KonvaPreview";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Position,
   useEditorContext,

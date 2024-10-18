@@ -7,11 +7,11 @@ import { invoke } from "@tauri-apps/api/tauri";
 import styles from "./SourceSelector.module.scss";
 import { Box, Button, MenuItem, Select, Typography } from "@mui/material";
 // import SourceSelector from "../components/SourceSelector/SourceSelector";
-import toBuffer from "blob-to-buffer";
+// import toBuffer from "blob-to-buffer";
 import useAsyncEffect from "use-async-effect";
 import { listen } from "@tauri-apps/api/event";
 
-let currentMediaRecorder: MediaRecorder | null = null;
+// let currentMediaRecorder: MediaRecorder | null = null;
 
 export interface Source {
   hwnd: number;
@@ -37,8 +37,8 @@ export interface SourceData {
 
 function SourceSelector({
   projectId = "",
-  setProjectId = (valeu: string) => {},
-  setCurrentView = (value: string) => {},
+  setProjectId = (value: string) => console.info("setProjectId", value),
+  setCurrentView = (value: string) => console.info("setCurrentView", value),
 }: any) {
   const [sources, setSources] = React.useState<Source[]>([]);
   const [selectedSource, setSelectedSource] = React.useState<number | null>(
@@ -126,9 +126,9 @@ function SourceSelector({
     };
   }, []);
 
-  const handleOpenProject = () => {
-    // ipcRenderer.sendSync("open-project");
-  };
+  // const handleOpenProject = () => {
+  //   // ipcRenderer.sendSync("open-project");
+  // };
 
   const handleStartRecording = () => {
     if (!selectedSource) {
@@ -169,7 +169,7 @@ function SourceSelector({
             }}
           >
             <MenuItem value={0}>No source selected</MenuItem>
-            {sources?.map((source, i) => {
+            {sources?.map((source) => {
               return <MenuItem value={source.hwnd}>{source.title}</MenuItem>;
             })}
           </Select>

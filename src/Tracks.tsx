@@ -211,8 +211,7 @@ const TracksContainer = styled(Box)`
 `;
 
 const Tracks: React.FC<any> = ({ originalDuration = null }) => {
-  const [{ videoTrack, zoomTracks, selectedTrack }, dispatch] =
-    useEditorContext();
+  const [{ videoTrack, zoomTracks }, dispatch] = useEditorContext();
 
   // const [trackRef, { width: trackWidth, height: trackHeight }] =
   //   useElementSize();
@@ -327,7 +326,7 @@ const Tracks: React.FC<any> = ({ originalDuration = null }) => {
           <span className="trackLength">
             {Math.round(originalDuration / 1000)}s
           </span>
-          {new Array(numTicks).fill(0).map((x, i) => {
+          {new Array(numTicks).fill(0).map((_, i) => {
             return (
               <div className={"tick"}>
                 <span>{Math.round(tickSpace * (i + 1))}</span>
