@@ -495,7 +495,12 @@ const KonvaPreview = ({
   return (
     <>
       <ProjectCtrls>
-        <Button variant="contained" color="success" onClick={exportVideo}>
+        <Button
+          disabled={exporting}
+          variant="contained"
+          color="success"
+          onClick={exportVideo}
+        >
           Export
         </Button>
       </ProjectCtrls>

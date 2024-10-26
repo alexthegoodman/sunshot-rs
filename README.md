@@ -14,6 +14,8 @@ Needs pkg-config, clang, ffmpeg on system:
 - vcpkg integrate install
 - vcpkg install ffmpeg[x264,gpl]
 
+Note: I think I needed ffmpeg with scoop, and adding its bin to PATH. Not sure. Otherwise silent fail, no dll.
+
 Run:
 
 - npm run tauri dev
